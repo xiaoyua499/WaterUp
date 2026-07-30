@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">WaterUp 茶 drink illustration</title>
+  <desc id="desc">Reusable vector beverage illustration</desc>
+  <metadata>{"product":"WaterUp","version":"1.0","requirements":"Reusable vector beverage illustration","canvas":"256x256"}</metadata>
+
+  <defs>
+    <linearGradient id="backgroundGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F4F8FF"/>
+      <stop offset="0.55" stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#ECF5FF"/>
+    </linearGradient>
+    <linearGradient id="primaryGradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#43CBD0"/>
+      <stop offset="1" stop-color="#3E98F5"/>
+    </linearGradient>
+    <linearGradient id="blueButton" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#429EF8"/>
+      <stop offset="1" stop-color="#2E7EEA"/>
+    </linearGradient>
+    <linearGradient id="glassGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.82"/>
+      <stop offset="0.6" stop-color="#F8FCFF" stop-opacity="0.66"/>
+      <stop offset="1" stop-color="#E8F3FF" stop-opacity="0.76"/>
+    </linearGradient>
+    <linearGradient id="greenGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#69D7A5"/>
+      <stop offset="1" stop-color="#48B985"/>
+    </linearGradient>
+    <linearGradient id="purpleGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B692FF"/>
+      <stop offset="1" stop-color="#8B6AE8"/>
+    </linearGradient>
+    <linearGradient id="orangeGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB76A"/>
+      <stop offset="1" stop-color="#F48666"/>
+    </linearGradient>
+
+  </defs>
+
+  <g font-family="PingFang SC, SF Pro Display, SF Pro Text, -apple-system, BlinkMacSystemFont, Arial, sans-serif">
+    <circle cx="128" cy="128" r="112" fill="#F8FBFF" stroke="#FFFFFF" stroke-width="4"/>
+      <circle cx="128" cy="128" r="108" fill="#F2F7E7"/>
+      <ellipse cx="128" cy="181" rx="75" ry="22" fill="#E8EED4" stroke="#6C8B27" stroke-width="6"/>
+      <path d="M68 96 Q128 72 185 96 L173 164 Q128 190 83 164 Z" fill="#FFFDF4" stroke="#6C8B27" stroke-width="7"/>
+      <ellipse cx="127" cy="98" rx="59" ry="16" fill="#B4C83C" stroke="#6C8B27" stroke-width="6"/>
+      <path d="M183 112 C222 91 223 155 180 151" fill="none" stroke="#6C8B27" stroke-width="10" stroke-linecap="round"/>
+      <path d="M95 119 C115 129 142 128 162 116" fill="none" stroke="#DCEB88" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>

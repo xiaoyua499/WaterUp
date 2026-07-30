@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" role="img" aria-labelledby="title desc">
+  <title id="title">WaterUp light background</title>
+  <desc id="desc">Reusable vector background asset</desc>
+  <metadata>{"product":"WaterUp","version":"1.0","requirements":"Reusable vector background asset","canvas":"390x844"}</metadata>
+
+  <defs>
+    <linearGradient id="backgroundGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F4F8FF"/>
+      <stop offset="0.55" stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#ECF5FF"/>
+    </linearGradient>
+    <linearGradient id="primaryGradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#43CBD0"/>
+      <stop offset="1" stop-color="#3E98F5"/>
+    </linearGradient>
+    <linearGradient id="blueButton" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#429EF8"/>
+      <stop offset="1" stop-color="#2E7EEA"/>
+    </linearGradient>
+    <linearGradient id="glassGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.82"/>
+      <stop offset="0.6" stop-color="#F8FCFF" stop-opacity="0.66"/>
+      <stop offset="1" stop-color="#E8F3FF" stop-opacity="0.76"/>
+    </linearGradient>
+    <linearGradient id="greenGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#69D7A5"/>
+      <stop offset="1" stop-color="#48B985"/>
+    </linearGradient>
+    <linearGradient id="purpleGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B692FF"/>
+      <stop offset="1" stop-color="#8B6AE8"/>
+    </linearGradient>
+    <linearGradient id="orangeGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB76A"/>
+      <stop offset="1" stop-color="#F48666"/>
+    </linearGradient>
+
+  </defs>
+
+  <g font-family="PingFang SC, SF Pro Display, SF Pro Text, -apple-system, BlinkMacSystemFont, Arial, sans-serif">
+    <rect x="0" y="0" width="390" height="844" rx="0" fill="url(#backgroundGradient)" stroke="none" stroke-width="0" />
+    <circle cx="58" cy="72" r="210" fill="#FFFFFF" opacity="0.22"/>
+    <circle cx="356" cy="246" r="172" fill="#CDEFFF" opacity="0.16"/>
+    <path d="M0 730 C80 688 138 785 220 746 C294 711 335 706 390 742 V844 H0 Z" fill="#E4F4FF" opacity="0.5"/>
+  </g>
+</svg>

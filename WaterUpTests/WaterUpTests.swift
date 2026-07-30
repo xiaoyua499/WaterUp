@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 import SwiftData
 @testable import WaterUp
@@ -217,6 +218,260 @@ final class WaterUpTests: XCTestCase {
         XCTAssertEqual(summary.remainingML, 1_710)
         XCTAssertEqual(summary.progress, 0.145)
         XCTAssertEqual(summary.ringProgress, 0.145)
+    }
+
+    func testQuickRecordUsesCurrentDrinkConfigurationAndPreservesSnapshot() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let bootstrap = BootstrapService(dateBoundary: dateBoundary)
+        let favoriteDrinkService = FavoriteDrinkService()
+
+        try bootstrap.initialize(in: context, now: now)
+
+        let water = try XCTUnwrap(
+            favoriteDrinkService.activeBuiltInWater(in: context)
+        )
+        let result = try RecordService().createQuickRecord(
+            forDrinkID: water.id,
+            at: now,
+            in: context
+        )
+
+        water.name = "山泉水"
+        water.waterRatioPercent = 95
+        water.defaultVolumeML = 300
+        try PersistenceService.saveChanges(in: context)
+
+        let records = try HydrationRecordQueryService(dateBoundary: dateBoundary)
+            .records(on: now, in: context)
+        let record = try XCTUnwrap(records.first)
+        let dashboard = try TodayDashboardService(dateBoundary: dateBoundary)
+            .dashboard(for: now, in: context)
+
+        XCTAssertEqual(result.volumeML, 250)
+        XCTAssertEqual(result.effectiveHydrationML, 250)
+        XCTAssertEqual(record.id, result.recordID)
+        XCTAssertEqual(record.drinkNameSnapshot, "饮用水")
+        XCTAssertEqual(record.waterRatioPercentSnapshot, 100)
+        XCTAssertEqual(record.volumeML, 250)
+        XCTAssertEqual(record.effectiveHydrationML, 250)
+        XCTAssertEqual(dashboard.summary.totalEffectiveHydrationML, 250)
+        XCTAssertEqual(dashboard.records.count, 1)
+        XCTAssertEqual(dashboard.favoriteDrinks.first?.name, "山泉水")
+    }
+
+    func testQuickRecordUndoDeletesOnlyTheSpecifiedRecord() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let bootstrap = BootstrapService(dateBoundary: dateBoundary)
+
+        try bootstrap.initialize(in: context, now: now)
+
+        let water = try XCTUnwrap(
+            try FavoriteDrinkService().activeBuiltInWater(in: context)
+        )
+        let tea = try fetchDrink(seedKey: "tea", in: context)
+        let recordService = RecordService()
+        let waterResult = try recordService.createQuickRecord(
+            forDrinkID: water.id,
+            at: now,
+            in: context
+        )
+        let teaResult = try recordService.createQuickRecord(
+            forDrinkID: tea.id,
+            at: now.addingTimeInterval(60),
+            in: context
+        )
+
+        try recordService.deleteRecord(id: teaResult.recordID, in: context)
+
+        let records = try HydrationRecordQueryService(dateBoundary: dateBoundary)
+            .records(on: now, in: context)
+        let summary = try HydrationSummaryService(dateBoundary: dateBoundary)
+            .summary(for: now, in: context)
+
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, waterResult.recordID)
+        XCTAssertEqual(summary.totalVolumeML, 250)
+        XCTAssertEqual(summary.totalEffectiveHydrationML, 250)
+    }
+
+    func testTodayDashboardLimitsFavoritesToSixAndExcludesArchivedDrinks() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let bootstrap = BootstrapService(dateBoundary: dateBoundary)
+
+        try bootstrap.initialize(in: context, now: now)
+
+        context.insert(
+            makeFavoriteDrink(
+                name: "柠檬水",
+                favoriteOrder: 4,
+                now: now
+            )
+        )
+        context.insert(
+            makeFavoriteDrink(
+                name: "苏打水",
+                favoriteOrder: 5,
+                now: now
+            )
+        )
+        context.insert(
+            makeFavoriteDrink(
+                name: "第七杯",
+                favoriteOrder: 6,
+                now: now
+            )
+        )
+        context.insert(
+            DrinkDefinition(
+                name: "已归档饮品",
+                category: .other,
+                waterRatioPercent: 80,
+                defaultVolumeML: 250,
+                colorToken: "gray",
+                iconKey: WaterUpAsset.Drink.custom,
+                source: .custom,
+                status: .archived,
+                isFavorite: true,
+                favoriteOrder: 0,
+                createdAt: now,
+                updatedAt: now
+            )
+        )
+        try PersistenceService.saveChanges(in: context)
+
+        let dashboard = try TodayDashboardService(dateBoundary: dateBoundary)
+            .dashboard(for: now, in: context)
+
+        XCTAssertEqual(dashboard.favoriteDrinks.count, 6)
+        XCTAssertEqual(
+            dashboard.favoriteDrinks.map(\.name),
+            ["饮用水", "茶", "咖啡", "牛奶", "柠檬水", "苏打水"]
+        )
+        XCTAssertFalse(dashboard.favoriteDrinks.contains { $0.name == "已归档饮品" })
+    }
+
+    func testTodayDashboardPreservesRealProgressAboveOneHundredPercent() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let bootstrap = BootstrapService(dateBoundary: dateBoundary)
+
+        try bootstrap.initialize(in: context, now: now)
+        context.insert(
+            HydrationRecord(
+                drinkID: UUID(),
+                drinkNameSnapshot: "饮用水",
+                categorySnapshot: DrinkCategory.water.rawValue,
+                waterRatioPercentSnapshot: 100,
+                colorTokenSnapshot: "blue",
+                iconKeySnapshot: WaterUpAsset.Drink.water,
+                volumeML: 2_300,
+                effectiveHydrationML: 2_300,
+                consumedAt: now,
+                createdAt: now,
+                updatedAt: now
+            )
+        )
+        try PersistenceService.saveChanges(in: context)
+
+        let dashboard = try TodayDashboardService(dateBoundary: dateBoundary)
+            .dashboard(for: now, in: context)
+
+        XCTAssertEqual(dashboard.summary.totalEffectiveHydrationML, 2_300)
+        XCTAssertEqual(dashboard.summary.remainingML, 0)
+        XCTAssertEqual(dashboard.summary.progress, 1.15)
+        XCTAssertEqual(dashboard.summary.ringProgress, 1)
+    }
+
+    func testHydrationExplanationIsShownOnlyUntilDismissed() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let bootstrap = BootstrapService(dateBoundary: dateBoundary)
+        let explanationService = HydrationExplanationService()
+
+        try bootstrap.initialize(in: context, now: now)
+        XCTAssertTrue(try explanationService.shouldShow(in: context))
+
+        try explanationService.markAsShown(in: context)
+
+        XCTAssertFalse(try explanationService.shouldShow(in: context))
+    }
+
+    private func fetchDrink(seedKey: String, in context: ModelContext) throws -> DrinkDefinition {
+        let descriptor = FetchDescriptor<DrinkDefinition>(
+            predicate: #Predicate { drink in
+                drink.seedKey == seedKey
+            }
+        )
+
+        return try XCTUnwrap(context.fetch(descriptor).first)
+    }
+
+    private func makeFavoriteDrink(
+        name: String,
+        favoriteOrder: Int,
+        now: Date
+    ) -> DrinkDefinition {
+        DrinkDefinition(
+            name: name,
+            category: .other,
+            waterRatioPercent: 90,
+            defaultVolumeML: 250,
+            colorToken: "blue",
+            iconKey: WaterUpAsset.Drink.custom,
+            source: .custom,
+            isFavorite: true,
+            favoriteOrder: favoriteOrder,
+            createdAt: now,
+            updatedAt: now
+        )
     }
 
     private func makeCalendar(timeZoneIdentifier: String) -> Calendar {

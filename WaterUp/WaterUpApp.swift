@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import SwiftData
 
@@ -7,7 +8,10 @@ struct WaterUpApp: App {
 
     init() {
         do {
-            let container = try WaterUpModelContainer.make()
+            let isRunningUITests = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+            let container = try WaterUpModelContainer.make(
+                isStoredInMemoryOnly: isRunningUITests
+            )
             let context = ModelContext(container)
             try BootstrapService().initialize(in: context)
             modelContainer = container

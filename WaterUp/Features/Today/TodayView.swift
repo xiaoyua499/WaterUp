@@ -13,6 +13,7 @@ struct TodayView: View {
     @State private var isShowingReadError = false
     @State private var actionError: TodayActionError?
     @State private var undoState: QuickRecordUndoState?
+    @State private var recordFormRoute: RecordFormRoute?
 
     private let dashboardService = TodayDashboardService()
     private let recordService = RecordService()
@@ -68,6 +69,11 @@ struct TodayView: View {
                 reload()
             }
         }
+        .sheet(item: $recordFormRoute) { route in
+            NavigationStack {
+                RecordFormView(route: route, onSaved: reload)
+            }
+        }
         .animation(
             reduceMotion ? nil : .easeInOut(duration: WaterUpTheme.Motion.confirmationDuration),
             value: undoState?.recordID
@@ -95,19 +101,20 @@ struct TodayView: View {
         WaterUpSectionTitle("快速添加", detail: "默认杯量")
         FavoriteDrinkGrid(
             drinks: dashboard.favoriteDrinks,
+            onOpenForm: openRecordForm,
             onQuickAdd: createQuickRecord
         )
 
         recentRecordsSection(for: dashboard)
 
-        if dashboard.records.isEmpty, let defaultWater = dashboard.defaultWater {
+        if let defaultWater = dashboard.defaultWater {
             WaterUpPrimaryButton(
-                title: "记录第一杯水",
-                systemImage: "drop.fill"
+                title: "记录饮品",
+                systemImage: "plus"
             ) {
-                createQuickRecord(defaultWater.id)
+                openRecordForm(defaultWater.id)
             }
-            .accessibilityIdentifier("waterup.today.first-water")
+            .accessibilityIdentifier("waterup.today.record-drink")
         }
     }
 
@@ -134,7 +141,17 @@ struct TodayView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(dashboard.recentRecords.enumerated()), id: \.element.id) { index, record in
-                        TodayRecordRow(record: record)
+                        NavigationLink {
+                            RecordDetailView(recordID: record.id, onChanged: reload)
+                        } label: {
+                            TodayRecordRow(record: record)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            "\(record.drinkNameSnapshot)，\(TodayDateFormatter.time.string(from: record.consumedAt))记录，饮品容量 \(record.volumeML) mL，有效补水 \(record.effectiveHydrationML) mL"
+                        )
+                        .accessibilityHint("打开记录详情")
+                        .accessibilityIdentifier("waterup.today.record-row")
 
                         if index < dashboard.recentRecords.count - 1 {
                             Divider()
@@ -182,6 +199,10 @@ struct TodayView: View {
                 message: "记录未保存，请重试。"
             )
         }
+    }
+
+    private func openRecordForm(_ drinkID: UUID) {
+        recordFormRoute = .create(drinkID: drinkID, consumedAt: .now)
     }
 
     private func retryQuickRecord() {
@@ -404,6 +425,7 @@ private struct TodayMetric: View {
 
 private struct FavoriteDrinkGrid: View {
     let drinks: [DrinkDefinition]
+    let onOpenForm: (UUID) -> Void
     let onQuickAdd: (UUID) -> Void
 
     private let columns = [
@@ -422,9 +444,11 @@ private struct FavoriteDrinkGrid: View {
         } else {
             LazyVGrid(columns: columns, spacing: WaterUpTheme.Spacing.x3) {
                 ForEach(drinks, id: \.id) { drink in
-                    FavoriteDrinkButton(drink: drink) {
-                        onQuickAdd(drink.id)
-                    }
+                    FavoriteDrinkButton(
+                        drink: drink,
+                        onOpenForm: { onOpenForm(drink.id) },
+                        onQuickAdd: { onQuickAdd(drink.id) }
+                    )
                 }
             }
         }
@@ -433,45 +457,68 @@ private struct FavoriteDrinkGrid: View {
 
 private struct FavoriteDrinkButton: View {
     let drink: DrinkDefinition
-    let action: () -> Void
+    let onOpenForm: () -> Void
+    let onQuickAdd: () -> Void
+
+    private var quickAddIdentifier: String {
+        if let seedKey = drink.seedKey {
+            return "waterup.today.quick-add.\(seedKey)"
+        }
+
+        return "waterup.today.quick-add.\(drink.id.uuidString)"
+    }
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: WaterUpTheme.Spacing.x2) {
-                Image(drink.iconKey)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 48, height: 48)
-                    .accessibilityHidden(true)
+        VStack(spacing: WaterUpTheme.Spacing.x2) {
+            Button(action: onOpenForm) {
+                VStack(spacing: WaterUpTheme.Spacing.x2) {
+                    Image(drink.iconKey)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 48, height: 48)
+                        .accessibilityHidden(true)
 
-                Text(drink.name)
-                    .font(WaterUpTheme.Typography.headline)
-                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    Text(drink.name)
+                        .font(WaterUpTheme.Typography.headline)
+                        .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
 
-                Text("\(drink.defaultVolumeML) mL")
-                    .font(WaterUpTheme.Typography.caption)
-                    .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
-                    .monospacedDigit()
+                    Text("\(drink.defaultVolumeML) mL")
+                        .font(WaterUpTheme.Typography.caption)
+                        .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 142)
-            .padding(.horizontal, WaterUpTheme.Spacing.x2)
-            .padding(.vertical, WaterUpTheme.Spacing.x3)
-            .background(
-                WaterUpTheme.Palette.surfacePrimary.color,
-                in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
-                    .stroke(WaterUpTheme.Palette.divider.color, lineWidth: 1)
+            .buttonStyle(.plain)
+            .accessibilityLabel("编辑 \(drink.name) 记录")
+            .accessibilityHint("可调整容量、时间和备注后保存")
+
+            Button(action: onQuickAdd) {
+                Label("快速记录", systemImage: "plus.circle.fill")
+                    .font(WaterUpTheme.Typography.caption.weight(.semibold))
+                    .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.plain)
+            .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
+            .accessibilityLabel("快速添加 \(drink.name)，默认 \(drink.defaultVolumeML) mL")
+            .accessibilityHint("立即创建一条饮水记录")
+            .accessibilityIdentifier(quickAddIdentifier)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("快速添加 \(drink.name)，默认 \(drink.defaultVolumeML) mL")
-        .accessibilityHint("立即创建一条饮水记录")
-        .accessibilityIdentifier("waterup.today.quick-add.\(drink.id.uuidString)")
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 166)
+        .padding(.horizontal, WaterUpTheme.Spacing.x2)
+        .padding(.vertical, WaterUpTheme.Spacing.x3)
+        .background(
+            WaterUpTheme.Palette.surfacePrimary.color,
+            in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
+                .stroke(WaterUpTheme.Palette.divider.color, lineWidth: 1)
+        }
     }
 }
 
@@ -509,10 +556,6 @@ private struct TodayRecordRow: View {
             }
             .monospacedDigit()
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "\(record.drinkNameSnapshot)，\(TodayDateFormatter.time.string(from: record.consumedAt))记录，饮品容量 \(record.volumeML) mL，有效补水 \(record.effectiveHydrationML) mL"
-        )
     }
 }
 
@@ -677,5 +720,5 @@ private enum TodayDateFormatter {
 
 #Preview {
     TodayView(onShowAllRecords: {})
-        .modelContainer(try! WaterUpModelContainer.make(isStoredInMemoryOnly: true))
+        .modelContainer(WaterUpPreviewData.makeModelContainer())
 }

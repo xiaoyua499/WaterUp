@@ -176,11 +176,13 @@ private extension AppTab {
 
 #Preview {
     RootTabView()
+        .modelContainer(WaterUpPreviewData.makeModelContainer())
 }
 
 #Preview("辅助字号") {
     RootTabView()
         .environment(\.sizeCategory, .accessibilityExtraExtraExtraLarge)
+        .modelContainer(WaterUpPreviewData.makeModelContainer())
 }
 
 #Preview("减弱动态效果") {
@@ -188,4 +190,5 @@ private extension AppTab {
         .transaction { transaction in
             transaction.animation = nil
         }
+        .modelContainer(WaterUpPreviewData.makeModelContainer())
 }

@@ -444,6 +444,256 @@ final class WaterUpTests: XCTestCase {
         XCTAssertFalse(try explanationService.shouldShow(in: context))
     }
 
+    func testRecordDraftRejectsInvalidVolumeFutureTimeAndLongNote() {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let drink = DrinkDefinition(
+            name: "测试饮品",
+            category: .other,
+            waterRatioPercent: 90,
+            defaultVolumeML: 250,
+            colorToken: "blue",
+            iconKey: WaterUpAsset.Drink.custom,
+            source: .custom,
+            createdAt: now,
+            updatedAt: now
+        )
+        let invalidVolumeValues = ["", "abc", "0", "5001"]
+
+        for value in invalidVolumeValues {
+            var draft = RecordDraft.newRecord(from: drink, consumedAt: now)
+            draft.volumeText = value
+
+            XCTAssertTrue(draft.validationErrors(at: now).contains(.invalidVolume))
+        }
+
+        var futureDraft = RecordDraft.newRecord(
+            from: drink,
+            consumedAt: now.addingTimeInterval(1)
+        )
+        futureDraft.volumeText = "300"
+        XCTAssertEqual(futureDraft.validationErrors(at: now), [.futureConsumedAt])
+
+        var longNoteDraft = RecordDraft.newRecord(from: drink, consumedAt: now)
+        longNoteDraft.note = String(repeating: "水", count: 101)
+        XCTAssertEqual(longNoteDraft.validationErrors(at: now), [.noteTooLong])
+    }
+
+    func testNewRecordSavesCompleteDrinkSnapshotAndEffectiveHydration() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let drink = DrinkDefinition(
+            name: "椰子水",
+            category: .sportsDrink,
+            waterRatioPercent: 90,
+            defaultVolumeML: 250,
+            colorToken: "cyan",
+            iconKey: WaterUpAsset.Drink.custom,
+            source: .custom,
+            createdAt: now,
+            updatedAt: now
+        )
+        context.insert(drink)
+        try PersistenceService.saveChanges(in: context)
+
+        var draft = RecordDraft.newRecord(
+            from: drink,
+            consumedAt: now.addingTimeInterval(-60)
+        )
+        draft.volumeText = "300"
+        draft.note = "训练后"
+
+        let recordService = RecordService()
+        let result = try recordService.save(draft: draft, now: now, in: context)
+        let record = try recordService.record(id: result.recordID, in: context)
+
+        XCTAssertEqual(record.drinkID, drink.id)
+        XCTAssertEqual(record.drinkNameSnapshot, "椰子水")
+        XCTAssertEqual(record.categorySnapshot, DrinkCategory.sportsDrink.rawValue)
+        XCTAssertEqual(record.waterRatioPercentSnapshot, 90)
+        XCTAssertEqual(record.colorTokenSnapshot, "cyan")
+        XCTAssertEqual(record.iconKeySnapshot, WaterUpAsset.Drink.custom)
+        XCTAssertEqual(record.volumeML, 300)
+        XCTAssertEqual(record.effectiveHydrationML, 270)
+        XCTAssertEqual(record.note, "训练后")
+    }
+
+    func testEditingWithoutReplacingDrinkKeepsHistoricalSnapshot() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let drink = DrinkDefinition(
+            name: "旧配方",
+            category: .other,
+            waterRatioPercent: 90,
+            defaultVolumeML: 300,
+            colorToken: "blue",
+            iconKey: WaterUpAsset.Drink.custom,
+            source: .custom,
+            createdAt: now,
+            updatedAt: now
+        )
+        context.insert(drink)
+        try PersistenceService.saveChanges(in: context)
+
+        let recordService = RecordService()
+        var newDraft = RecordDraft.newRecord(
+            from: drink,
+            consumedAt: now.addingTimeInterval(-3_600)
+        )
+        newDraft.volumeText = "300"
+        let createResult = try recordService.save(
+            draft: newDraft,
+            now: now.addingTimeInterval(-3_500),
+            in: context
+        )
+        let record = try recordService.record(id: createResult.recordID, in: context)
+
+        drink.name = "新配方"
+        drink.waterRatioPercent = 50
+        drink.colorToken = "red"
+        try PersistenceService.saveChanges(in: context)
+
+        var editDraft = RecordDraft.editing(record)
+        editDraft.volumeText = "500"
+        _ = try recordService.save(draft: editDraft, now: now, in: context)
+
+        XCTAssertEqual(record.drinkNameSnapshot, "旧配方")
+        XCTAssertEqual(record.waterRatioPercentSnapshot, 90)
+        XCTAssertEqual(record.colorTokenSnapshot, "blue")
+        XCTAssertEqual(record.volumeML, 500)
+        XCTAssertEqual(record.effectiveHydrationML, 450)
+    }
+
+    func testExplicitDrinkReplacementUsesCurrentConfigurationAndKeepsEditedVolume() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now.addingTimeInterval(-3_600))
+
+        let water = try fetchDrink(seedKey: "water", in: context)
+        let milk = try fetchDrink(seedKey: "milk", in: context)
+        let recordService = RecordService()
+        let quickResult = try recordService.createQuickRecord(
+            forDrinkID: water.id,
+            at: now.addingTimeInterval(-1_800),
+            in: context
+        )
+        let record = try recordService.record(id: quickResult.recordID, in: context)
+        var draft = RecordDraft.editing(record)
+        draft.volumeText = "500"
+        draft.select(milk)
+
+        _ = try recordService.save(draft: draft, now: now, in: context)
+
+        XCTAssertEqual(record.drinkID, milk.id)
+        XCTAssertEqual(record.drinkNameSnapshot, milk.name)
+        XCTAssertEqual(record.categorySnapshot, milk.categoryRawValue)
+        XCTAssertEqual(record.waterRatioPercentSnapshot, milk.waterRatioPercent)
+        XCTAssertEqual(record.colorTokenSnapshot, milk.colorToken)
+        XCTAssertEqual(record.iconKeySnapshot, milk.iconKey)
+        XCTAssertEqual(record.volumeML, 500)
+        XCTAssertEqual(record.effectiveHydrationML, 435)
+    }
+
+    func testEditingConsumedDateMovesRecordBetweenNaturalDays() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let yesterday = makeDate(
+            year: 2026,
+            month: 7,
+            day: 29,
+            hour: 20,
+            calendar: calendar
+        )
+        let today = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        try BootstrapService(dateBoundary: dateBoundary).initialize(
+            in: context,
+            now: yesterday
+        )
+
+        let water = try fetchDrink(seedKey: "water", in: context)
+        let recordService = RecordService(dateBoundary: dateBoundary)
+        let quickResult = try recordService.createQuickRecord(
+            forDrinkID: water.id,
+            at: today,
+            in: context
+        )
+        let record = try recordService.record(id: quickResult.recordID, in: context)
+        var draft = RecordDraft.editing(record)
+        draft.consumedAt = yesterday
+
+        let result = try recordService.save(
+            draft: draft,
+            now: today.addingTimeInterval(60),
+            in: context
+        )
+        let queryService = HydrationRecordQueryService(dateBoundary: dateBoundary)
+        let yesterdayRecords = try queryService.records(on: yesterday, in: context)
+        let todayRecords = try queryService.records(on: today, in: context)
+
+        XCTAssertEqual(result.previousDayKey, "2026-07-30")
+        XCTAssertEqual(result.currentDayKey, "2026-07-29")
+        XCTAssertEqual(yesterdayRecords.map(\.id), [quickResult.recordID])
+        XCTAssertTrue(todayRecords.isEmpty)
+    }
+
+    func testSaveFailureRollsBackOriginalRecordAndKeepsDraftValue() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let drink = DrinkDefinition(
+            name: "回滚测试饮品",
+            category: .other,
+            waterRatioPercent: 80,
+            defaultVolumeML: 250,
+            colorToken: "blue",
+            iconKey: WaterUpAsset.Drink.custom,
+            source: .custom,
+            createdAt: now,
+            updatedAt: now
+        )
+        context.insert(drink)
+        try PersistenceService.saveChanges(in: context)
+
+        let normalService = RecordService()
+        let quickResult = try normalService.createQuickRecord(
+            forDrinkID: drink.id,
+            at: now.addingTimeInterval(-60),
+            in: context
+        )
+        let record = try normalService.record(id: quickResult.recordID, in: context)
+        var draft = RecordDraft.editing(record)
+        draft.volumeText = "500"
+        draft.note = "输入不能丢失"
+        let failingService = RecordService(saveChanges: { _ in
+            throw IntentionalSaveError.failure
+        })
+
+        XCTAssertThrowsError(
+            try failingService.save(draft: draft, now: now, in: context)
+        )
+
+        let verificationContext = ModelContext(container)
+        let persistedRecord = try normalService.record(
+            id: quickResult.recordID,
+            in: verificationContext
+        )
+        XCTAssertEqual(persistedRecord.volumeML, 250)
+        XCTAssertEqual(persistedRecord.effectiveHydrationML, 200)
+        XCTAssertNil(persistedRecord.note)
+        XCTAssertEqual(draft.volumeText, "500")
+        XCTAssertEqual(draft.note, "输入不能丢失")
+    }
+
     private func fetchDrink(seedKey: String, in context: ModelContext) throws -> DrinkDefinition {
         let descriptor = FetchDescriptor<DrinkDefinition>(
             predicate: #Predicate { drink in
@@ -495,5 +745,9 @@ final class WaterUpTests: XCTestCase {
                 hour: hour
             )
         )!
+    }
+
+    private enum IntentionalSaveError: Error {
+        case failure
     }
 }

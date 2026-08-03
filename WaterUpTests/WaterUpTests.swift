@@ -161,6 +161,104 @@ final class WaterUpTests: XCTestCase {
         XCTAssertEqual(try goalService.goal(for: today, in: context).targetML, 3_000)
     }
 
+    func testGoalDraftAllowsBoundaryTargetsAndRejectsInvalidTargets() throws {
+        XCTAssertEqual(try GoalDraft(targetML: 500).targetML, 500)
+        XCTAssertEqual(try GoalDraft(targetML: 5_000).targetML, 5_000)
+
+        let invalidTargets = [400, 5_100, 550]
+        for targetML in invalidTargets {
+            XCTAssertThrowsError(try GoalDraft(targetML: targetML)) { error in
+                XCTAssertEqual(error as? GoalValidationError, .invalidTargetML)
+            }
+        }
+    }
+
+    func testGoalUpsertAcceptsBoundaryTargets() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let goalService = GoalService(dateBoundary: dateBoundary)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: now)
+        try goalService.upsertToday(targetML: 500, now: now, in: context)
+        XCTAssertEqual(try goalService.goal(for: now, in: context).targetML, 500)
+
+        try goalService.upsertToday(targetML: 5_000, now: now, in: context)
+        XCTAssertEqual(try goalService.goal(for: now, in: context).targetML, 5_000)
+    }
+
+    func testGoalChangeImmediatelyUpdatesTodayProgress() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let goalService = GoalService(dateBoundary: dateBoundary)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: now)
+        context.insert(
+            HydrationRecord(
+                drinkID: UUID(),
+                drinkNameSnapshot: "饮用水",
+                categorySnapshot: DrinkCategory.water.rawValue,
+                waterRatioPercentSnapshot: 100,
+                colorTokenSnapshot: "blue",
+                iconKeySnapshot: WaterUpAsset.Drink.water,
+                volumeML: 1_000,
+                effectiveHydrationML: 1_000,
+                consumedAt: now,
+                createdAt: now,
+                updatedAt: now
+            )
+        )
+        try PersistenceService.saveChanges(in: context)
+
+        try goalService.upsertToday(targetML: 2_500, now: now, in: context)
+        try PersistenceService.saveChanges(in: context)
+
+        let summary = try HydrationSummaryService(dateBoundary: dateBoundary)
+            .summary(for: now, in: context)
+        XCTAssertEqual(summary.targetML, 2_500)
+        XCTAssertEqual(summary.totalEffectiveHydrationML, 1_000)
+        XCTAssertEqual(summary.progress, 0.4)
+    }
+
+    func testInvalidGoalSavePreservesStoredGoal() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let goalService = GoalService(dateBoundary: dateBoundary)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: now)
+
+        XCTAssertThrowsError(
+            try goalService.upsertToday(targetML: 550, now: now, in: context)
+        )
+        XCTAssertEqual(try goalService.goal(for: now, in: context).targetML, 2_000)
+    }
+
     func testDayRangeFollowsLocalCalendarInsteadOfFixedTwentyFourHours() throws {
         let calendar = makeCalendar(timeZoneIdentifier: "America/New_York")
         let daylightSavingDate = makeDate(

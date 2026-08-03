@@ -110,6 +110,7 @@ struct WaterUpSettingsRow: View {
                     .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
             }
             .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

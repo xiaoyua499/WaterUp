@@ -24,7 +24,7 @@ struct RootTabView: View {
             .tag(AppTab.history)
 
             NavigationStack {
-                AppFoundationPlaceholderView(tab: .settings)
+                SettingsView()
             }
             .tabItem {
                 Label(AppTab.settings.title, systemImage: AppTab.settings.systemImage)

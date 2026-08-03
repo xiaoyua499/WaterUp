@@ -69,6 +69,9 @@ struct TodayView: View {
                 reload()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .waterUpGoalDidChange)) { _ in
+            reload()
+        }
         .sheet(item: $recordFormRoute) { route in
             NavigationStack {
                 RecordFormView(route: route, onSaved: reload)

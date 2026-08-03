@@ -54,6 +54,31 @@ final class WaterUpUITests: XCTestCase {
     }
 
     @MainActor
+    func testGoalSettingsSupportsNumericInputAndQuickTargets() {
+        let app = makeApp()
+        app.tabBars.buttons["设置"].tap()
+
+        let dailyGoal = app.buttons["waterup.settings.daily-goal"]
+        tapWhenVisible(dailyGoal, in: app)
+
+        let targetInput = app.descendants(matching: .any)["waterup.goal.target-input"]
+        XCTAssertTrue(targetInput.waitForExistence(timeout: 3))
+        targetInput.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 3))
+
+        targetInput.typeText("1")
+        XCTAssertTrue(
+            app.staticTexts["请输入 500–5000 mL 之间且为 100 mL 步长的目标"]
+                .waitForExistence(timeout: 3)
+        )
+
+        let quickTarget = app.buttons["waterup.goal.quick-2500"]
+        tapWhenVisible(quickTarget, in: app)
+        XCTAssertEqual(targetInput.value as? String, "2500")
+        XCTAssertTrue(app.buttons["waterup.goal.save"].isEnabled)
+    }
+
+    @MainActor
     private func makeApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing"]

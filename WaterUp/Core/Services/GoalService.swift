@@ -5,6 +5,10 @@ enum GoalServiceError: Error, Equatable {
     case noGoalConfigured
 }
 
+extension Notification.Name {
+    static let waterUpGoalDidChange = Notification.Name("WaterUp.goalDidChange")
+}
+
 struct GoalService {
     let dateBoundary: DateBoundaryService
 
@@ -49,6 +53,11 @@ struct GoalService {
 
         if let existingGoal = sameDayGoals.first {
             existingGoal.targetML = targetML
+
+            for duplicateGoal in sameDayGoals.dropFirst() {
+                context.delete(duplicateGoal)
+            }
+
             return
         }
 

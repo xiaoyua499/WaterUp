@@ -42,13 +42,6 @@ struct GoalSettingsView: View {
                     dismiss()
                 }
             }
-
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("完成") {
-                    isTargetInputFocused = false
-                }
-            }
         }
         .task {
             loadDraft()

@@ -79,6 +79,87 @@ final class WaterUpUITests: XCTestCase {
     }
 
     @MainActor
+    func testDrinkManagementShowsAllBuiltInDrinksAndSupportsUnlimitedFavorites() {
+        let app = makeApp()
+        app.tabBars.buttons["设置"].tap()
+
+        let drinkManagement = app.buttons["waterup.settings.drink-management"]
+        tapWhenVisible(drinkManagement, in: app)
+
+        XCTAssertTrue(app.staticTexts["饮品管理"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["常用饮品 4"].waitForExistence(timeout: 3))
+
+        for seedKey in ["water", "tea", "coffee", "milk", "juice", "soda", "sport"] {
+            XCTAssertTrue(
+                app.buttons["waterup.drink-management.edit.\(seedKey)"].waitForExistence(timeout: 3)
+            )
+        }
+
+        for seedKey in ["juice", "soda", "sport"] {
+            let drinkRow = app.buttons["waterup.drink-management.edit.\(seedKey)"]
+            tapWhenVisible(drinkRow, in: app)
+
+            let favoriteToggle = app.switches["waterup.drink-editor.favorite"]
+            XCTAssertTrue(favoriteToggle.waitForExistence(timeout: 3))
+            favoriteToggle.tap()
+
+            tapWhenVisible(app.buttons["waterup.drink-editor.save"], in: app)
+        }
+        XCTAssertTrue(app.staticTexts["常用饮品 7"].waitForExistence(timeout: 3))
+    }
+
+    @MainActor
+    func testCreateCustomDrinkSupportsIconSelection() {
+        let app = makeApp()
+        app.tabBars.buttons["设置"].tap()
+
+        let drinkManagement = app.buttons["waterup.settings.drink-management"]
+        tapWhenVisible(drinkManagement, in: app)
+
+        let addCustom = app.buttons["waterup.drink-management.add-custom"]
+        tapWhenVisible(addCustom, in: app)
+
+        let nameField = app.textFields["waterup.drink-editor.name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        nameField.typeText("柠檬茶")
+
+        let appearance = app.buttons["waterup.drink-editor.appearance"]
+        tapWhenVisible(appearance, in: app)
+        let teaIcon = app.buttons["waterup.drink-editor.icon.DrinkTea"]
+        tapWhenVisible(teaIcon, in: app)
+        tapWhenVisible(app.buttons["waterup.drink-editor.appearance.done"], in: app)
+
+        let saveButton = app.buttons["waterup.drink-editor.save"]
+        tapWhenVisible(saveButton, in: app)
+        XCTAssertTrue(app.staticTexts["柠檬茶"].waitForExistence(timeout: 3))
+
+        let editCustom = app.buttons["编辑柠檬茶"]
+        tapWhenVisible(editCustom, in: app)
+        XCTAssertTrue(app.staticTexts["自定义饮品"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.textFields["waterup.drink-editor.name"].isEnabled)
+        XCTAssertTrue(app.textFields["waterup.drink-editor.water-ratio"].isEnabled)
+        XCTAssertTrue(app.textFields["waterup.drink-editor.default-volume"].isEnabled)
+    }
+
+    @MainActor
+    func testBuiltInDrinkEditorOnlyAllowsDefaultVolume() {
+        let app = makeApp()
+        app.tabBars.buttons["设置"].tap()
+
+        let drinkManagement = app.buttons["waterup.settings.drink-management"]
+        tapWhenVisible(drinkManagement, in: app)
+
+        let editWater = app.buttons["waterup.drink-management.edit.water"]
+        tapWhenVisible(editWater, in: app)
+
+        XCTAssertTrue(app.staticTexts["编辑饮品"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["waterup.drink-editor.name"].isEnabled)
+        XCTAssertFalse(app.textFields["waterup.drink-editor.water-ratio"].isEnabled)
+        XCTAssertTrue(app.textFields["waterup.drink-editor.default-volume"].isEnabled)
+    }
+
+    @MainActor
     private func makeApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing"]

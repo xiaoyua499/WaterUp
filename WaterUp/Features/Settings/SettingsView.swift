@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var targetDetail = "读取中"
     @State private var isShowingReadError = false
     @State private var isShowingGoalSettings = false
+    @State private var isShowingDrinkManagement = false
 
     private let goalService = GoalService()
 
@@ -23,6 +24,18 @@ struct SettingsView: View {
                     isShowingGoalSettings = true
                 }
                 .accessibilityIdentifier("waterup.settings.daily-goal")
+
+                Divider()
+                    .overlay(WaterUpTheme.Palette.divider.color)
+
+                WaterUpSettingsRow(
+                    title: "饮品管理",
+                    detail: "常用饮品",
+                    systemImage: "cup.and.saucer.fill"
+                ) {
+                    isShowingDrinkManagement = true
+                }
+                .accessibilityIdentifier("waterup.settings.drink-management")
             }
 
             if isShowingReadError {
@@ -43,6 +56,9 @@ struct SettingsView: View {
             NavigationStack {
                 GoalSettingsView()
             }
+        }
+        .navigationDestination(isPresented: $isShowingDrinkManagement) {
+            DrinkManagementView()
         }
     }
 

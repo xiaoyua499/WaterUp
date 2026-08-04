@@ -58,13 +58,6 @@ struct RecordFormView: View {
                     dismiss()
                 }
             }
-
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("完成") {
-                    focusedField = nil
-                }
-            }
         }
         .sheet(isPresented: $isShowingDrinkPicker) {
             if let draft {

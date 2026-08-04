@@ -124,6 +124,293 @@ final class WaterUpTests: XCTestCase {
         XCTAssertEqual(milk.defaultVolumeML, 250)
     }
 
+    func testBuiltInDrinkCatalogMatchesApprovedBaseline() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+
+        try BootstrapService().initialize(in: context, now: now)
+
+        let catalog = try DrinkCatalogService().activeCatalog(in: context)
+        let values = catalog.builtIn.map { drink in
+            (
+                drink.seedKey,
+                drink.name,
+                drink.waterRatioPercent,
+                drink.defaultVolumeML,
+                drink.sourceRawValue,
+                drink.statusRawValue
+            )
+        }
+
+        XCTAssertEqual(values.count, 7)
+        XCTAssertEqual(
+            values.map { $0.0 },
+            ["water", "tea", "coffee", "milk", "juice", "soda", "sport"]
+        )
+        XCTAssertEqual(
+            values.map { $0.1 },
+            ["饮用水", "茶", "咖啡", "牛奶", "果汁", "碳酸饮料", "运动饮料"]
+        )
+        XCTAssertEqual(values.map { $0.2 }, [100, 99, 99, 87, 88, 90, 94])
+        XCTAssertEqual(values.map { $0.3 }, [250, 300, 250, 250, 250, 330, 500])
+        XCTAssertTrue(values.allSatisfy { $0.4 == DrinkSource.builtIn.rawValue && $0.5 == DrinkStatus.active.rawValue })
+    }
+
+    func testFavoriteDrinkServiceAllowsAnyNumberOfFavoritesAndKeepsOrder() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let bootstrap = BootstrapService()
+        let service = FavoriteDrinkService()
+
+        try bootstrap.initialize(in: context, now: now)
+        let juice = try fetchDrink(seedKey: "juice", in: context)
+        let soda = try fetchDrink(seedKey: "soda", in: context)
+        let sport = try fetchDrink(seedKey: "sport", in: context)
+
+        try service.addToFavorites(id: juice.id, in: context)
+        try service.addToFavorites(id: soda.id, in: context)
+
+        try service.addToFavorites(id: sport.id, in: context)
+
+        let favorites = try service.favoriteDrinks(in: context)
+        XCTAssertEqual(favorites.map(\.seedKey), ["water", "tea", "coffee", "milk", "juice", "soda", "sport"])
+        XCTAssertEqual(favorites.map(\.favoriteOrder), [0, 1, 2, 3, 4, 5, 6])
+    }
+
+    func testRemovingFavoriteCompactsOrderAndArchivingCustomDrinkRemovesFavorite() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let bootstrap = BootstrapService()
+        let service = FavoriteDrinkService()
+
+        try bootstrap.initialize(in: context, now: now)
+        let tea = try fetchDrink(seedKey: "tea", in: context)
+        let custom = DrinkDefinition(
+            name: "柠檬水",
+            category: .water,
+            waterRatioPercent: 95,
+            defaultVolumeML: 300,
+            colorToken: "blue",
+            iconKey: WaterUpAsset.Drink.custom,
+            source: .custom,
+            isFavorite: true,
+            favoriteOrder: 4,
+            createdAt: now,
+            updatedAt: now
+        )
+        context.insert(custom)
+        try PersistenceService.saveChanges(in: context)
+
+        try service.removeFromFavorites(id: tea.id, in: context)
+
+        let favoritesAfterRemoval = try service.favoriteDrinks(in: context)
+        XCTAssertEqual(favoritesAfterRemoval.map(\.seedKey), ["water", "coffee", "milk", nil])
+        XCTAssertEqual(favoritesAfterRemoval.map(\.favoriteOrder), [0, 1, 2, 3])
+
+        try service.archiveCustomDrink(id: custom.id, in: context)
+
+        XCTAssertEqual(custom.status, .archived)
+        XCTAssertFalse(custom.isFavorite)
+        XCTAssertNil(custom.favoriteOrder)
+        XCTAssertEqual(try service.favoriteCount(in: context), 3)
+    }
+
+    func testBuiltInDrinkCannotBeArchived() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+
+        let water = try fetchDrink(seedKey: "water", in: context)
+
+        XCTAssertThrowsError(try FavoriteDrinkService().archiveCustomDrink(id: water.id, in: context)) { error in
+            XCTAssertEqual(error as? FavoriteDrinkServiceError, .builtInDrinkCannotBeArchived)
+        }
+        XCTAssertEqual(water.status, .active)
+        XCTAssertTrue(water.isFavorite)
+    }
+
+    func testCreateCustomDrinkTrimsNamePersistsIconAndAllowsZeroHydrationRatio() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+
+        var draft = DrinkDraft.newDrink()
+        draft.name = "  柠檬茶  "
+        draft.categoryRawValue = DrinkCategory.tea.rawValue
+        draft.waterRatioText = "0"
+        draft.defaultVolumeText = "300"
+        draft.colorToken = "purple"
+        draft.iconKey = WaterUpAsset.Drink.tea
+        draft.isFavorite = true
+
+        let drink = try DrinkService().create(draft: draft, now: now, in: context)
+
+        XCTAssertEqual(drink.name, "柠檬茶")
+        XCTAssertEqual(drink.category, .tea)
+        XCTAssertEqual(drink.waterRatioPercent, 0)
+        XCTAssertEqual(drink.defaultVolumeML, 300)
+        XCTAssertEqual(drink.colorToken, "purple")
+        XCTAssertEqual(drink.iconKey, WaterUpAsset.Drink.tea)
+        XCTAssertEqual(drink.source, .custom)
+        XCTAssertTrue(drink.isFavorite)
+        XCTAssertEqual(try FavoriteDrinkService().favoriteCount(in: context), 5)
+    }
+
+    func testDrinkDraftValidatesNameRatioAndVolumeRules() {
+        var draft = DrinkDraft.newDrink()
+        draft.name = " "
+        draft.waterRatioText = "101"
+        draft.defaultVolumeText = "2001"
+
+        XCTAssertEqual(
+            draft.validationErrors,
+            [.emptyName, .invalidWaterRatio, .invalidDefaultVolume]
+        )
+
+        draft.name = String(repeating: "饮", count: 21)
+        draft.waterRatioText = "0"
+        draft.defaultVolumeText = "1"
+        XCTAssertEqual(draft.validationErrors, [.nameTooLong])
+    }
+
+    func testBuiltInDrinkOnlyUpdatesDefaultVolumeAndKeepsHistoricalSnapshot() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+
+        let water = try fetchDrink(seedKey: "water", in: context)
+        let firstRecord = try RecordService().createQuickRecord(
+            forDrinkID: water.id,
+            at: now,
+            in: context
+        )
+        var draft = DrinkDraft(drink: water)
+        draft.name = "不应修改的名称"
+        draft.waterRatioText = "80"
+        draft.defaultVolumeText = "500"
+        draft.iconKey = WaterUpAsset.Drink.tea
+
+        try DrinkService().update(draft: draft, now: now, in: context)
+
+        XCTAssertEqual(water.name, "饮用水")
+        XCTAssertEqual(water.waterRatioPercent, 100)
+        XCTAssertEqual(water.defaultVolumeML, 500)
+        XCTAssertEqual(water.iconKey, WaterUpAsset.Drink.water)
+
+        let historicalRecord = try RecordService().record(id: firstRecord.recordID, in: context)
+        XCTAssertEqual(historicalRecord.volumeML, 250)
+        XCTAssertEqual(historicalRecord.waterRatioPercentSnapshot, 100)
+        XCTAssertEqual(historicalRecord.effectiveHydrationML, 250)
+
+        let nextRecord = try RecordService().createQuickRecord(
+            forDrinkID: water.id,
+            at: now.addingTimeInterval(60),
+            in: context
+        )
+        XCTAssertEqual(nextRecord.volumeML, 500)
+        XCTAssertEqual(nextRecord.effectiveHydrationML, 500)
+    }
+
+    func testCustomDrinkCanEditAllFieldsAndNewRecordsUseUpdatedConfiguration() throws {
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 9,
+            calendar: makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+
+        var createDraft = DrinkDraft.newDrink()
+        createDraft.name = "原始饮品"
+        createDraft.categoryRawValue = DrinkCategory.other.rawValue
+        createDraft.waterRatioText = "90"
+        createDraft.defaultVolumeText = "300"
+        let drink = try DrinkService().create(draft: createDraft, now: now, in: context)
+        let firstRecord = try RecordService().createQuickRecord(
+            forDrinkID: drink.id,
+            at: now,
+            in: context
+        )
+
+        var editDraft = DrinkDraft(drink: drink)
+        editDraft.name = "更新后的饮品"
+        editDraft.categoryRawValue = DrinkCategory.juice.rawValue
+        editDraft.waterRatioText = "80"
+        editDraft.defaultVolumeText = "400"
+        editDraft.colorToken = "red"
+        editDraft.iconKey = WaterUpAsset.Drink.sport
+        editDraft.isFavorite = true
+
+        try DrinkService().update(draft: editDraft, now: now, in: context)
+
+        XCTAssertEqual(drink.name, "更新后的饮品")
+        XCTAssertEqual(drink.category, .juice)
+        XCTAssertEqual(drink.waterRatioPercent, 80)
+        XCTAssertEqual(drink.defaultVolumeML, 400)
+        XCTAssertEqual(drink.colorToken, "red")
+        XCTAssertEqual(drink.iconKey, WaterUpAsset.Drink.sport)
+        XCTAssertTrue(drink.isFavorite)
+
+        let historicalRecord = try RecordService().record(id: firstRecord.recordID, in: context)
+        XCTAssertEqual(historicalRecord.drinkNameSnapshot, "原始饮品")
+        XCTAssertEqual(historicalRecord.waterRatioPercentSnapshot, 90)
+        XCTAssertEqual(historicalRecord.volumeML, 300)
+        XCTAssertEqual(historicalRecord.effectiveHydrationML, 270)
+
+        let nextRecord = try RecordService().createQuickRecord(
+            forDrinkID: drink.id,
+            at: now.addingTimeInterval(60),
+            in: context
+        )
+        XCTAssertEqual(nextRecord.volumeML, 400)
+        XCTAssertEqual(nextRecord.effectiveHydrationML, 320)
+    }
+
     func testGoalUpsertPreservesHistoricalGoal() throws {
         let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
         let yesterday = makeDate(

@@ -36,6 +36,7 @@ struct RecordFormView: View {
     @State private var isShowingReadError = false
     @State private var isShowingDrinkPicker = false
     @State private var saveErrorMessage: String?
+    @State private var isSaving = false
     @FocusState private var focusedField: Field?
 
     private let catalogService = DrinkCatalogService()
@@ -103,8 +104,8 @@ struct RecordFormView: View {
         ) {
             saveDraft()
         }
-        .disabled(!validationErrors.isEmpty)
-        .opacity(validationErrors.isEmpty ? 1 : 0.55)
+        .disabled(!validationErrors.isEmpty || isSaving)
+        .opacity(validationErrors.isEmpty && !isSaving ? 1 : 0.55)
         .accessibilityIdentifier("waterup.record.save")
     }
 
@@ -406,10 +407,12 @@ struct RecordFormView: View {
     }
 
     private func saveDraft() {
-        guard let draft else {
+        guard let draft, !isSaving else {
             return
         }
 
+        isSaving = true
+        defer { isSaving = false }
         focusedField = nil
         saveErrorMessage = nil
 

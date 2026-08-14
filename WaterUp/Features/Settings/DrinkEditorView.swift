@@ -9,6 +9,7 @@ struct DrinkEditorView: View {
     @State private var editingSource: DrinkSource?
     @State private var isShowingAppearancePicker = false
     @State private var saveErrorMessage: String?
+    @State private var isSaving = false
     @FocusState private var focusedField: Field?
 
     let drinkID: UUID?
@@ -116,8 +117,8 @@ struct DrinkEditorView: View {
                     drinkPrimaryButton {
                         save()
                     }
-                    .disabled(!validationErrors.isEmpty)
-                    .opacity(validationErrors.isEmpty ? 1 : 0.55)
+                    .disabled(!validationErrors.isEmpty || isSaving)
+                    .opacity(validationErrors.isEmpty && !isSaving ? 1 : 0.55)
                     .padding(.top, 24)
                 }
                 .padding(.bottom, 40)
@@ -325,6 +326,12 @@ struct DrinkEditorView: View {
     }
 
     private func save() {
+        guard !isSaving else {
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
         saveErrorMessage = nil
 
         do {

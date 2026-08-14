@@ -1,7 +1,13 @@
+import SwiftData
 import SwiftUI
 
 struct RootTabView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var selectedTab: AppTab = .today
+
+    private let reminderSchedulingService = ReminderSchedulingService()
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -16,7 +22,7 @@ struct RootTabView: View {
             .tag(AppTab.today)
 
             NavigationStack {
-                AppFoundationPlaceholderView(tab: .history)
+                HistoryView()
             }
             .tabItem {
                 Label(AppTab.history.title, systemImage: AppTab.history.systemImage)
@@ -32,6 +38,32 @@ struct RootTabView: View {
             .tag(AppTab.settings)
         }
         .accessibilityIdentifier("waterup.root.tab")
+        .task {
+            synchronizeReminders()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                synchronizeReminders()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .waterUpRecordDidChange)) { _ in
+            synchronizeReminders()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .waterUpGoalDidChange)) { _ in
+            synchronizeReminders()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .waterUpReminderConfigurationDidChange)) { _ in
+            synchronizeReminders()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            synchronizeReminders()
+        }
+    }
+
+    private func synchronizeReminders() {
+        Task { @MainActor in
+            _ = try? await reminderSchedulingService.synchronize(in: modelContext)
+        }
     }
 }
 

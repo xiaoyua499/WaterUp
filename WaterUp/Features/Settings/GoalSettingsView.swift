@@ -12,6 +12,7 @@ struct GoalSettingsView: View {
     @State private var isShowingReadError = false
     @State private var saveErrorMessage: String?
     @State private var isSaved = false
+    @State private var isSaving = false
     @FocusState private var isTargetInputFocused: Bool
 
     private let goalService = GoalService()
@@ -144,8 +145,8 @@ struct GoalSettingsView: View {
         WaterUpPrimaryButton(title: "保存目标", systemImage: "checkmark") {
             saveDraft()
         }
-        .disabled(!isSaveEnabled)
-        .opacity(isSaveEnabled ? 1 : 0.55)
+        .disabled(!isSaveEnabled || isSaving)
+        .opacity(isSaveEnabled && !isSaving ? 1 : 0.55)
         .accessibilityIdentifier("waterup.goal.save")
     }
 
@@ -296,15 +297,16 @@ struct GoalSettingsView: View {
     }
 
     private func saveDraft() {
-        guard let targetML else {
+        guard let targetML, !isSaving else {
             return
         }
 
+        isSaving = true
+        defer { isSaving = false }
+
         do {
             try GoalValidator.validate(targetML: targetML)
-            // Reminder rescheduling is intentionally deferred to F10, where ReminderScheduler is introduced.
             try goalService.upsertToday(targetML: targetML, now: .now, in: modelContext)
-            try PersistenceService.saveChanges(in: modelContext)
 
             initialTargetML = targetML
             saveErrorMessage = nil

@@ -79,6 +79,43 @@ final class WaterUpUITests: XCTestCase {
     }
 
     @MainActor
+    func testReminderSettingsShowsLocalNotificationConfiguration() {
+        let app = makeApp()
+        app.tabBars.buttons["设置"].tap()
+
+        let reminderSettings = app.buttons["waterup.settings.reminder"]
+        tapWhenVisible(reminderSettings, in: app)
+
+        XCTAssertTrue(app.staticTexts["仅使用本地通知"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.switches["waterup.reminder.enabled"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["waterup.reminder.interval"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["waterup.reminder.save"].waitForExistence(timeout: 3))
+    }
+
+    @MainActor
+    func testSettingsShowsUnitAndPrivacyInformation() {
+        let unitApp = makeApp()
+        unitApp.tabBars.buttons["设置"].tap()
+
+        let unitExplanation = unitApp.buttons["waterup.settings.unit-explanation"]
+        tapWhenVisible(unitExplanation, in: unitApp)
+
+        XCTAssertTrue(unitApp.staticTexts["饮品容量"].waitForExistence(timeout: 3))
+        XCTAssertTrue(unitApp.staticTexts["有效补水量"].waitForExistence(timeout: 3))
+        XCTAssertTrue(unitApp.staticTexts["300 mL × 90% = 270 mL"].waitForExistence(timeout: 3))
+
+        let privacyApp = makeApp()
+        privacyApp.tabBars.buttons["设置"].tap()
+
+        let privacy = privacyApp.buttons["waterup.settings.privacy"]
+        tapWhenVisible(privacy, in: privacyApp)
+
+        XCTAssertTrue(privacyApp.staticTexts["你的记录不会上传"].waitForExistence(timeout: 3))
+        XCTAssertTrue(privacyApp.staticTexts["卸载 App 会删除本地数据，v1.0 无法恢复"].waitForExistence(timeout: 3))
+        XCTAssertTrue(privacyApp.otherElements["waterup.privacy.health-disclaimer"].waitForExistence(timeout: 3))
+    }
+
+    @MainActor
     func testDrinkManagementShowsAllBuiltInDrinksAndSupportsUnlimitedFavorites() {
         let app = makeApp()
         app.tabBars.buttons["设置"].tap()

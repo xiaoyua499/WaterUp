@@ -1079,6 +1079,457 @@ final class WaterUpTests: XCTestCase {
         XCTAssertEqual(draft.note, "输入不能丢失")
     }
 
+    func testQuickRecordSaveFailureDoesNotCreateRecord() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+        let water = try fetchDrink(seedKey: "water", in: context)
+        let failingService = RecordService(saveChanges: { _ in
+            throw IntentionalSaveError.failure
+        })
+
+        XCTAssertThrowsError(
+            try failingService.createQuickRecord(forDrinkID: water.id, at: now, in: context)
+        )
+
+        let verificationContext = ModelContext(container)
+        let records = try verificationContext.fetch(FetchDescriptor<HydrationRecord>())
+        XCTAssertTrue(records.isEmpty)
+    }
+
+    func testDeleteSaveFailureKeepsRecord() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+        let water = try fetchDrink(seedKey: "water", in: context)
+        let normalService = RecordService()
+        let result = try normalService.createQuickRecord(forDrinkID: water.id, at: now, in: context)
+        let failingService = RecordService(saveChanges: { _ in
+            throw IntentionalSaveError.failure
+        })
+
+        XCTAssertThrowsError(try failingService.deleteRecord(id: result.recordID, in: context))
+
+        let verificationContext = ModelContext(container)
+        let persistedRecord = try normalService.record(id: result.recordID, in: verificationContext)
+        XCTAssertEqual(persistedRecord.id, result.recordID)
+    }
+
+    func testDrinkSaveFailureDoesNotInsertCustomDrink() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+
+        var draft = DrinkDraft.newDrink()
+        draft.name = "未保存饮品"
+        draft.categoryRawValue = DrinkCategory.other.rawValue
+        draft.waterRatioText = "80"
+        draft.defaultVolumeText = "300"
+        draft.isFavorite = true
+        let failingService = DrinkService(saveChanges: { _ in
+            throw IntentionalSaveError.failure
+        })
+
+        XCTAssertThrowsError(try failingService.create(draft: draft, now: now, in: context))
+
+        let verificationContext = ModelContext(container)
+        let drinks = try verificationContext.fetch(FetchDescriptor<DrinkDefinition>())
+        XCTAssertEqual(drinks.count, 7)
+        XCTAssertFalse(drinks.contains { $0.name == "未保存饮品" })
+    }
+
+    func testGoalSaveFailurePreservesPersistedTarget() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(year: 2026, month: 8, day: 14, hour: 9, calendar: calendar)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: now)
+
+        let failingService = GoalService(
+            dateBoundary: dateBoundary,
+            saveChanges: { _ in throw IntentionalSaveError.failure }
+        )
+
+        XCTAssertThrowsError(
+            try failingService.upsertToday(targetML: 2_500, now: now, in: context)
+        )
+
+        let verificationContext = ModelContext(container)
+        let persistedGoal = try GoalService(dateBoundary: dateBoundary).goal(
+            for: now,
+            in: verificationContext
+        )
+        XCTAssertEqual(persistedGoal.targetML, 2_000)
+    }
+
+    func testReminderConfigurationSaveFailurePreservesPersistedValues() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try BootstrapService().initialize(in: context, now: now)
+        let configuration = try ReminderScheduleConfiguration(
+            isEnabled: true,
+            startMinuteOfDay: 8 * 60,
+            endMinuteOfDay: 20 * 60,
+            intervalMinutes: 60
+        )
+        let failingService = ReminderConfigurationService(saveChanges: { _ in
+            throw IntentionalSaveError.failure
+        })
+
+        XCTAssertThrowsError(
+            try failingService.save(configuration: configuration, in: context)
+        )
+
+        let verificationContext = ModelContext(container)
+        let persistedConfiguration = try ReminderConfigurationService().configuration(
+            in: verificationContext
+        )
+        XCTAssertFalse(persistedConfiguration.isEnabled)
+        XCTAssertEqual(persistedConfiguration.startMinuteOfDay, 9 * 60)
+        XCTAssertEqual(persistedConfiguration.endMinuteOfDay, 21 * 60)
+        XCTAssertEqual(persistedConfiguration.intervalMinutes, 120)
+    }
+
+    func testHistoryMonthUsesMondayGridThreeStatesAndHistoricalGoals() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let firstUseDate = makeDate(
+            year: 2026,
+            month: 7,
+            day: 1,
+            hour: 9,
+            calendar: calendar
+        )
+        let now = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let goalService = GoalService(dateBoundary: dateBoundary)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: firstUseDate)
+        try goalService.upsertToday(
+            targetML: 2_500,
+            now: makeDate(year: 2026, month: 7, day: 20, hour: 9, calendar: calendar),
+            in: context
+        )
+
+        context.insert(
+            makeHistoryRecord(
+                volumeML: 2_100,
+                effectiveHydrationML: 2_100,
+                consumedAt: makeDate(year: 2026, month: 7, day: 15, hour: 9, calendar: calendar)
+            )
+        )
+        context.insert(
+            makeHistoryRecord(
+                volumeML: 2_300,
+                effectiveHydrationML: 2_300,
+                consumedAt: makeDate(year: 2026, month: 7, day: 22, hour: 9, calendar: calendar)
+            )
+        )
+        try PersistenceService.saveChanges(in: context)
+
+        let month = try HistoryService(calendar: calendar).month(for: now, now: now, in: context)
+        let julyFirstIndex = try XCTUnwrap(month.days.firstIndex { day in
+            day.dayNumber == 1
+        })
+        let reachedDay = try XCTUnwrap(month.days.first { day in
+            day.dayNumber == 15
+        })
+        let belowTargetDay = try XCTUnwrap(month.days.first { day in
+            day.dayNumber == 22
+        })
+        let noDataDay = try XCTUnwrap(month.days.first { day in
+            day.dayNumber == 16
+        })
+        let futureDay = try XCTUnwrap(month.days.first { day in
+            day.dayNumber == 31
+        })
+
+        XCTAssertEqual(julyFirstIndex, 2)
+        XCTAssertEqual(reachedDay.state, .reachedTarget)
+        XCTAssertEqual(belowTargetDay.state, .belowTarget)
+        XCTAssertEqual(noDataDay.state, .noData)
+        XCTAssertTrue(futureDay.isFuture)
+        XCTAssertNil(futureDay.state)
+    }
+
+    func testHistoryDetailUsesRecordSnapshotsAndNewestRecordFirst() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let day = makeDate(
+            year: 2026,
+            month: 7,
+            day: 30,
+            hour: 12,
+            calendar: calendar
+        )
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: day)
+        let olderRecord = makeHistoryRecord(
+            drinkName: "茶",
+            volumeML: 300,
+            effectiveHydrationML: 297,
+            consumedAt: makeDate(year: 2026, month: 7, day: 30, hour: 9, calendar: calendar)
+        )
+        let newerRecord = makeHistoryRecord(
+            drinkName: "饮用水",
+            volumeML: 250,
+            effectiveHydrationML: 250,
+            consumedAt: makeDate(year: 2026, month: 7, day: 30, hour: 14, calendar: calendar)
+        )
+        context.insert(olderRecord)
+        context.insert(newerRecord)
+        try PersistenceService.saveChanges(in: context)
+
+        let detail = try HistoryService(calendar: calendar).detail(for: day, in: context)
+
+        XCTAssertEqual(detail.summary.targetML, 2_000)
+        XCTAssertEqual(detail.summary.totalVolumeML, 550)
+        XCTAssertEqual(detail.summary.totalEffectiveHydrationML, 547)
+        XCTAssertEqual(detail.records.map(\.id), [newerRecord.id, olderRecord.id])
+        XCTAssertEqual(detail.records.map(\.drinkNameSnapshot), ["饮用水", "茶"])
+    }
+
+    func testSevenDayTrendUsesHistoricalGoalsAndFirstUseDayForAverage() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let firstUseDate = makeDate(year: 2026, month: 7, day: 28, hour: 9, calendar: calendar)
+        let now = makeDate(year: 2026, month: 8, day: 3, hour: 12, calendar: calendar)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+        let goalService = GoalService(dateBoundary: dateBoundary)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: firstUseDate)
+        try goalService.upsertToday(
+            targetML: 2_500,
+            now: makeDate(year: 2026, month: 8, day: 1, hour: 9, calendar: calendar),
+            in: context
+        )
+
+        let records = [
+            makeHistoryRecord(
+                volumeML: 2_100,
+                effectiveHydrationML: 2_100,
+                consumedAt: makeDate(year: 2026, month: 7, day: 28, hour: 9, calendar: calendar)
+            ),
+            makeHistoryRecord(
+                volumeML: 1_000,
+                effectiveHydrationML: 1_000,
+                consumedAt: makeDate(year: 2026, month: 7, day: 30, hour: 9, calendar: calendar)
+            ),
+            makeHistoryRecord(
+                volumeML: 2_500,
+                effectiveHydrationML: 2_500,
+                consumedAt: makeDate(year: 2026, month: 8, day: 1, hour: 9, calendar: calendar)
+            ),
+            makeHistoryRecord(
+                volumeML: 2_600,
+                effectiveHydrationML: 2_600,
+                consumedAt: makeDate(year: 2026, month: 8, day: 2, hour: 9, calendar: calendar)
+            )
+        ]
+        for record in records {
+            context.insert(record)
+        }
+        try PersistenceService.saveChanges(in: context)
+
+        let dashboard = try TrendService(calendar: calendar).dashboard(
+            for: .sevenDays,
+            now: now,
+            in: context
+        )
+        let july31 = try XCTUnwrap(dashboard.period.points.first { $0.dayKey == "2026-07-31" })
+        let august1 = try XCTUnwrap(dashboard.period.points.first { $0.dayKey == "2026-08-01" })
+
+        XCTAssertEqual(dashboard.period.points.count, 7)
+        XCTAssertEqual(dashboard.period.summary.totalEffectiveHydrationML, 8_200)
+        XCTAssertEqual(dashboard.period.summary.averageEffectiveHydrationML, 1_171)
+        XCTAssertEqual(dashboard.period.summary.reachedTargetDayCount, 3)
+        XCTAssertEqual(dashboard.period.summary.recordCoveragePercent, 57)
+        XCTAssertEqual(july31.targetML, 2_000)
+        XCTAssertEqual(august1.targetML, 2_500)
+    }
+
+    func testThirtyDayTrendExcludesDaysBeforeFirstUseFromCoverageAndAverage() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let firstUseDate = makeDate(year: 2026, month: 7, day: 31, hour: 9, calendar: calendar)
+        let now = makeDate(year: 2026, month: 8, day: 3, hour: 12, calendar: calendar)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: firstUseDate)
+        context.insert(
+            makeHistoryRecord(
+                volumeML: 2_000,
+                effectiveHydrationML: 2_000,
+                consumedAt: firstUseDate
+            )
+        )
+        try PersistenceService.saveChanges(in: context)
+
+        let dashboard = try TrendService(calendar: calendar).dashboard(
+            for: .thirtyDays,
+            now: now,
+            in: context
+        )
+        let july30 = try XCTUnwrap(dashboard.period.points.first { $0.dayKey == "2026-07-30" })
+
+        XCTAssertEqual(dashboard.period.points.count, 30)
+        XCTAssertEqual(dashboard.period.summary.statisticalDayCount, 4)
+        XCTAssertEqual(dashboard.period.summary.averageEffectiveHydrationML, 500)
+        XCTAssertEqual(dashboard.period.summary.recordCoveragePercent, 25)
+        XCTAssertFalse(july30.isStatisticalDay)
+        XCTAssertNil(july30.targetML)
+    }
+
+    func testSevenDayComparisonUsesActualFirstUseDaysInEachPeriod() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let firstUseDate = makeDate(year: 2026, month: 7, day: 21, hour: 9, calendar: calendar)
+        let now = makeDate(year: 2026, month: 8, day: 3, hour: 12, calendar: calendar)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: firstUseDate)
+        for offset in 0..<14 {
+            let date = calendar.date(byAdding: .day, value: offset, to: firstUseDate)!
+            let hydration = offset < 7 ? 1_000 : 2_000
+            context.insert(
+                makeHistoryRecord(
+                    volumeML: hydration,
+                    effectiveHydrationML: hydration,
+                    consumedAt: date
+                )
+            )
+        }
+        try PersistenceService.saveChanges(in: context)
+
+        let dashboard = try TrendService(calendar: calendar).dashboard(
+            for: .sevenDays,
+            now: now,
+            in: context
+        )
+        let comparison = try XCTUnwrap(dashboard.comparisonWithPreviousPeriod)
+
+        XCTAssertEqual(comparison.averageDifferenceML, 1_000)
+        XCTAssertEqual(comparison.percentageChange, 100)
+    }
+
+    func testF13PerformanceDataCoversFiveYearsForCoreQueries() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(year: 2026, month: 8, day: 14, hour: 12, calendar: calendar)
+        let container = try WaterUpModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let dateBoundary = DateBoundaryService(calendar: calendar)
+
+        try BootstrapService(dateBoundary: dateBoundary).initialize(in: context, now: now)
+        try F13PerformanceDataService(calendar: calendar).seedIfNeeded(in: context, now: now)
+
+        let records = try context.fetch(FetchDescriptor<HydrationRecord>())
+        let today = try TodayDashboardService(dateBoundary: dateBoundary).dashboard(for: now, in: context)
+        let month = try HistoryService(calendar: calendar).month(for: now, now: now, in: context)
+        let sevenDayTrend = try TrendService(calendar: calendar).dashboard(
+            for: .sevenDays,
+            now: now,
+            in: context
+        )
+        let thirtyDayTrend = try TrendService(calendar: calendar).dashboard(
+            for: .thirtyDays,
+            now: now,
+            in: context
+        )
+
+        XCTAssertGreaterThanOrEqual(records.count, 1_825)
+        XCTAssertGreaterThan(today.summary.totalEffectiveHydrationML, 0)
+        XCTAssertTrue(month.days.contains { $0.dayNumber == 14 })
+        XCTAssertEqual(sevenDayTrend.period.points.count, 7)
+        XCTAssertEqual(thirtyDayTrend.period.points.count, 30)
+    }
+
+    func testReminderScheduleKeepsOnlyFutureTimesInsideConfiguredWindow() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(year: 2026, month: 8, day: 14, hour: 10, calendar: calendar)
+        let configuration = try ReminderScheduleConfiguration(
+            isEnabled: true,
+            startMinuteOfDay: 9 * 60,
+            endMinuteOfDay: 21 * 60,
+            intervalMinutes: 120
+        )
+        let dates = try ReminderScheduleCalculator(calendar: calendar).reminderDates(
+            configuration: configuration,
+            now: now,
+            isGoalReached: { _ in false }
+        )
+        let todayTimes = dates
+            .filter { calendar.isDate($0, inSameDayAs: now) }
+            .map { calendar.dateComponents([.hour, .minute], from: $0) }
+
+        XCTAssertEqual(todayTimes.map(\.hour), [11, 13, 15, 17, 19, 21])
+        XCTAssertTrue(todayTimes.allSatisfy { $0.minute == 0 })
+        XCTAssertEqual(dates.count, ReminderScheduleCalculator.maximumPendingRequestCount)
+    }
+
+    func testReminderScheduleStopsTodayAfterGoalAndKeepsTomorrowPlan() throws {
+        let calendar = makeCalendar(timeZoneIdentifier: "Asia/Shanghai")
+        let now = makeDate(year: 2026, month: 8, day: 14, hour: 10, calendar: calendar)
+        let configuration = try ReminderScheduleConfiguration(
+            isEnabled: true,
+            startMinuteOfDay: 9 * 60,
+            endMinuteOfDay: 21 * 60,
+            intervalMinutes: 120
+        )
+        let dates = try ReminderScheduleCalculator(calendar: calendar).reminderDates(
+            configuration: configuration,
+            now: now,
+            isGoalReached: { day in
+                calendar.isDate(day, inSameDayAs: now)
+            }
+        )
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+
+        XCTAssertFalse(dates.contains { calendar.isDate($0, inSameDayAs: now) })
+        XCTAssertTrue(dates.contains { calendar.isDate($0, inSameDayAs: tomorrow) })
+        XCTAssertEqual(calendar.component(.hour, from: try XCTUnwrap(dates.first)), 9)
+    }
+
+    func testReminderConfigurationRejectsInvalidTimeWindowAndInterval() {
+        XCTAssertThrowsError(
+            try ReminderScheduleConfiguration(
+                isEnabled: true,
+                startMinuteOfDay: 21 * 60,
+                endMinuteOfDay: 9 * 60,
+                intervalMinutes: 120
+            )
+        ) { error in
+            XCTAssertEqual(error as? ReminderDraftValidationError, .invalidTimeWindow)
+        }
+
+        XCTAssertThrowsError(
+            try ReminderScheduleConfiguration(
+                isEnabled: true,
+                startMinuteOfDay: 9 * 60,
+                endMinuteOfDay: 21 * 60,
+                intervalMinutes: 45
+            )
+        ) { error in
+            XCTAssertEqual(error as? ReminderDraftValidationError, .invalidInterval)
+        }
+    }
+
     private func fetchDrink(seedKey: String, in context: ModelContext) throws -> DrinkDefinition {
         let descriptor = FetchDescriptor<DrinkDefinition>(
             predicate: #Predicate { drink in
@@ -1106,6 +1557,27 @@ final class WaterUpTests: XCTestCase {
             favoriteOrder: favoriteOrder,
             createdAt: now,
             updatedAt: now
+        )
+    }
+
+    private func makeHistoryRecord(
+        drinkName: String = "饮用水",
+        volumeML: Int,
+        effectiveHydrationML: Int,
+        consumedAt: Date
+    ) -> HydrationRecord {
+        HydrationRecord(
+            drinkID: UUID(),
+            drinkNameSnapshot: drinkName,
+            categorySnapshot: DrinkCategory.water.rawValue,
+            waterRatioPercentSnapshot: 100,
+            colorTokenSnapshot: "blue",
+            iconKeySnapshot: WaterUpAsset.Drink.water,
+            volumeML: volumeML,
+            effectiveHydrationML: effectiveHydrationML,
+            consumedAt: consumedAt,
+            createdAt: consumedAt,
+            updatedAt: consumedAt
         )
     }
 

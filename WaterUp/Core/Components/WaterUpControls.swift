@@ -115,3 +115,30 @@ struct WaterUpSettingsRow: View {
         .buttonStyle(.plain)
     }
 }
+
+struct WaterUpSettingsStaticRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: WaterUpTheme.Spacing.x3) {
+            Image(systemName: systemImage)
+                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                .frame(width: WaterUpTheme.Layout.minimumTapTarget, height: WaterUpTheme.Layout.minimumTapTarget)
+
+            Text(title)
+                .font(WaterUpTheme.Typography.headline)
+                .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+
+            Spacer(minLength: WaterUpTheme.Spacing.x2)
+
+            Text(detail)
+                .font(WaterUpTheme.Typography.callout)
+                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                .lineLimit(1)
+        }
+        .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
+        .accessibilityElement(children: .combine)
+    }
+}

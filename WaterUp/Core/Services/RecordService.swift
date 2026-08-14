@@ -75,6 +75,7 @@ struct RecordService {
         )
         context.insert(record)
         try persistChanges(in: context)
+        NotificationCenter.default.post(name: .waterUpRecordDidChange, object: nil)
 
         return QuickRecordResult(
             recordID: record.id,
@@ -134,6 +135,7 @@ struct RecordService {
         }
 
         try persistChanges(in: context)
+        NotificationCenter.default.post(name: .waterUpRecordDidChange, object: nil)
 
         return RecordSaveResult(
             recordID: record.id,
@@ -146,6 +148,7 @@ struct RecordService {
         let record = try record(id: id, in: context)
         context.delete(record)
         try persistChanges(in: context)
+        NotificationCenter.default.post(name: .waterUpRecordDidChange, object: nil)
     }
 
     private func validate(draft: RecordDraft, now: Date) throws {

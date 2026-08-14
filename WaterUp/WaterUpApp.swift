@@ -14,6 +14,17 @@ struct WaterUpApp: App {
             )
             let context = ModelContext(container)
             try BootstrapService().initialize(in: context)
+
+            #if DEBUG
+            if !isRunningUITests {
+                if ProcessInfo.processInfo.arguments.contains(F13PerformanceDataService.launchArgument) {
+                    try F13PerformanceDataService().seedIfNeeded(in: context)
+                } else {
+                    try F09DemoDataService().seedIfNeeded(in: context)
+                }
+            }
+            #endif
+
             modelContainer = container
         } catch {
             fatalError("无法初始化 WaterUp 本地数据：\(error.localizedDescription)")

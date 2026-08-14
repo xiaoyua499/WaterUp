@@ -11,9 +11,16 @@ extension Notification.Name {
 
 struct GoalService {
     let dateBoundary: DateBoundaryService
+    private let saveChanges: (ModelContext) throws -> Void
 
-    init(dateBoundary: DateBoundaryService = DateBoundaryService()) {
+    init(
+        dateBoundary: DateBoundaryService = DateBoundaryService(),
+        saveChanges: @escaping (ModelContext) throws -> Void = { context in
+            try PersistenceService.saveChanges(in: context)
+        }
+    ) {
         self.dateBoundary = dateBoundary
+        self.saveChanges = saveChanges
     }
 
     func goal(for date: Date, in context: ModelContext) throws -> DailyGoalChange {
@@ -58,6 +65,7 @@ struct GoalService {
                 context.delete(duplicateGoal)
             }
 
+            try persistChanges(in: context)
             return
         }
 
@@ -67,5 +75,15 @@ struct GoalService {
             createdAt: now
         )
         context.insert(newGoal)
+        try persistChanges(in: context)
+    }
+
+    private func persistChanges(in context: ModelContext) throws {
+        do {
+            try saveChanges(context)
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 }

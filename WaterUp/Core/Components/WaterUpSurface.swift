@@ -2,38 +2,42 @@ import SwiftUI
 
 struct WaterUpPage<Content: View>: View {
     let title: String
+    let titleDisplayMode: NavigationBarItem.TitleDisplayMode
     private let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(
+        title: String,
+        titleDisplayMode: NavigationBarItem.TitleDisplayMode = .large,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
+        self.titleDisplayMode = titleDisplayMode
         self.content = content()
     }
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    WaterUpTheme.Palette.backgroundBase.color,
-                    WaterUpTheme.Palette.backgroundTint.color
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x5) {
-                    content
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, WaterUpTheme.Spacing.pageHorizontal)
-                .padding(.top, WaterUpTheme.Spacing.x4)
-                .padding(.bottom, WaterUpTheme.Spacing.x8)
+        ScrollView {
+            VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x5) {
+                content
             }
-            .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, WaterUpTheme.Spacing.pageHorizontal)
+            .padding(.top, WaterUpTheme.Spacing.x4)
+            .padding(
+                .bottom,
+                WaterUpTheme.Spacing.x8 + WaterUpTheme.Spacing.x10 * 2
+            )
+        }
+        .scrollIndicators(.hidden)
+        .background {
+            // 背景独立于内容布局，避免缩放后的图片撑大页面并遮挡顶部内容。
+            Image(WaterUpAsset.Background.light)
+                .resizable()
+                .scaledToFill()
+                .ignoresSafeArea()
         }
         .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(titleDisplayMode)
     }
 }
 

@@ -24,73 +24,73 @@ struct SettingsView: View {
             WaterUpSectionTitle("饮水计划")
 
             WaterUpCard {
-                WaterUpSettingsRow(
-                    title: "每日目标",
-                    detail: targetDetail,
-                    systemImage: "target"
-                ) {
-                    isShowingGoalSettings = true
+                VStack(spacing: 0) {
+                    WaterUpSettingsRow(
+                        title: "每日目标",
+                        detail: targetDetail,
+                        systemImage: "target"
+                    ) {
+                        isShowingGoalSettings = true
+                    }
+                    .accessibilityIdentifier("waterup.settings.daily-goal")
+
+                    settingsDivider
+
+                    WaterUpSettingsRow(
+                        title: "饮品管理",
+                        detail: drinkDetail,
+                        systemImage: "cup.and.saucer.fill"
+                    ) {
+                        isShowingDrinkManagement = true
+                    }
+                    .accessibilityIdentifier("waterup.settings.drink-management")
+
+                    settingsDivider
+
+                    WaterUpSettingsRow(
+                        title: "饮水提醒",
+                        detail: reminderDetail,
+                        systemImage: "bell.fill"
+                    ) {
+                        isShowingReminderSettings = true
+                    }
+                    .accessibilityIdentifier("waterup.settings.reminder")
+
+                    settingsDivider
+
+                    WaterUpSettingsRow(
+                        title: "单位说明",
+                        detail: "mL",
+                        systemImage: "ruler"
+                    ) {
+                        isShowingUnitExplanation = true
+                    }
+                    .accessibilityIdentifier("waterup.settings.unit-explanation")
                 }
-                .accessibilityIdentifier("waterup.settings.daily-goal")
-
-                Divider()
-                    .overlay(WaterUpTheme.Palette.divider.color)
-
-                WaterUpSettingsRow(
-                    title: "饮品管理",
-                    detail: drinkDetail,
-                    systemImage: "cup.and.saucer.fill"
-                ) {
-                    isShowingDrinkManagement = true
-                }
-                .accessibilityIdentifier("waterup.settings.drink-management")
-
-                Divider()
-                    .overlay(WaterUpTheme.Palette.divider.color)
-
-                WaterUpSettingsRow(
-                    title: "饮水提醒",
-                    detail: reminderDetail,
-                    systemImage: "bell.fill"
-                ) {
-                    isShowingReminderSettings = true
-                }
-                .accessibilityIdentifier("waterup.settings.reminder")
-
-                Divider()
-                    .overlay(WaterUpTheme.Palette.divider.color)
-
-                WaterUpSettingsRow(
-                    title: "单位说明",
-                    detail: "mL",
-                    systemImage: "ruler"
-                ) {
-                    isShowingUnitExplanation = true
-                }
-                .accessibilityIdentifier("waterup.settings.unit-explanation")
             }
 
             WaterUpSectionTitle("关于")
 
             WaterUpCard {
-                WaterUpSettingsRow(
-                    title: "数据与隐私",
-                    detail: "",
-                    systemImage: "checkmark.shield.fill"
-                ) {
-                    isShowingPrivacy = true
+                VStack(spacing: 0) {
+                    WaterUpSettingsRow(
+                        title: "数据与隐私",
+                        detail: "",
+                        systemImage: "checkmark.shield.fill"
+                    ) {
+                        isShowingPrivacy = true
+                    }
+                    .accessibilityIdentifier("waterup.settings.privacy")
+
+                    settingsDivider
+
+                    WaterUpSettingsStaticRow(
+                        title: "版本信息",
+                        detail: AppVersion.currentDisplay,
+                        systemImage: "info.circle"
+                    )
+                    .accessibilityIdentifier("waterup.settings.version")
                 }
-                .accessibilityIdentifier("waterup.settings.privacy")
-
-                Divider()
-                    .overlay(WaterUpTheme.Palette.divider.color)
-
-                WaterUpSettingsStaticRow(
-                    title: "版本信息",
-                    detail: AppVersion.currentDisplay,
-                    systemImage: "info.circle"
-                )
-                .accessibilityIdentifier("waterup.settings.version")
             }
 
             WaterUpStatusMessage(
@@ -138,6 +138,12 @@ struct SettingsView: View {
         .navigationDestination(isPresented: $isShowingPrivacy) {
             DataPrivacyView()
         }
+    }
+
+    private var settingsDivider: some View {
+        Divider()
+            .overlay(WaterUpTheme.Palette.divider.color)
+            .padding(.leading, WaterUpTheme.Spacing.x8)
     }
 
     private func loadSettingsSummary() async {

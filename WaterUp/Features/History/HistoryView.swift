@@ -17,12 +17,31 @@ struct HistoryView: View {
     private let historyService = HistoryService()
 
     var body: some View {
-        WaterUpPage(title: selectedPeriod.navigationTitle) {
-            Text(selectedPeriod.subtitle)
-                .font(WaterUpTheme.Typography.callout)
-                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+        WaterUpPage(title: "", titleDisplayMode: .inline) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
+                    Text(selectedPeriod.navigationTitle)
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(selectedPeriod.subtitle)
+                        .font(WaterUpTheme.Typography.callout)
+                        .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                }
+                Spacer()
+                Image(systemName: "calendar")
+                    .font(.title2)
+                    .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                    .frame(width: 46, height: 46)
+                    .background(.white, in: Circle())
+                    .accessibilityHidden(true)
+            }
 
             HistoryPeriodSegment(selectedPeriod: $selectedPeriod)
+
+            if selectedPeriod == .calendar {
+                monthPicker(for: displayedMonth)
+            }
 
             if isLoading {
                 WaterUpCard {
@@ -51,7 +70,8 @@ struct HistoryView: View {
                 TrendView(dashboard: trendDashboard)
             }
         }
-        .navigationBarTitleDisplayMode(.large)
+        // 首页标题按设计随内容排布，详情页显式恢复原生导航栏。
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             reload()
         }
@@ -62,9 +82,10 @@ struct HistoryView: View {
 
     @ViewBuilder
     private func monthContent(_ month: HistoryMonth) -> some View {
-        monthPicker(for: month.monthStart)
-        calendarGrid(month)
-        historyLegend
+        VStack(spacing: WaterUpTheme.Spacing.x3) {
+            calendarGrid(month)
+            historyLegend
+        }
 
         if let selectedDate {
             selectedDaySection(for: selectedDate)
@@ -82,7 +103,7 @@ struct HistoryView: View {
     private func monthPicker(for monthStart: Date) -> some View {
         HStack {
             Text(HistoryDateFormatter.month.string(from: monthStart))
-                .font(WaterUpTheme.Typography.title1)
+                .font(WaterUpTheme.Typography.title2)
                 .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
 
             Spacer()
@@ -114,7 +135,7 @@ struct HistoryView: View {
     }
 
     private func calendarGrid(_ month: HistoryMonth) -> some View {
-        VStack(spacing: WaterUpTheme.Spacing.x3) {
+        VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(HistoryDateFormatter.weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
@@ -139,28 +160,21 @@ struct HistoryView: View {
                 }
             }
         }
-        .padding(.vertical, WaterUpTheme.Spacing.x4)
-        .background(
-            WaterUpTheme.Palette.surfacePrimary.color,
-            in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.large, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: WaterUpTheme.Radius.large, style: .continuous)
-                .stroke(WaterUpTheme.Palette.divider.color, lineWidth: 1)
-        }
     }
 
     private var historyLegend: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x3) {
             Text("状态说明")
                 .font(WaterUpTheme.Typography.callout)
                 .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
 
-            Spacer(minLength: WaterUpTheme.Spacing.x2)
-
-            HistoryLegendItem(title: "已达标", state: .reachedTarget)
-            HistoryLegendItem(title: "未达标", state: .belowTarget)
-            HistoryLegendItem(title: "无记录", state: .noData)
+            HStack {
+                HistoryLegendItem(title: "已达标", state: .reachedTarget)
+                Spacer(minLength: 8)
+                HistoryLegendItem(title: "未达标", state: .belowTarget)
+                Spacer(minLength: 8)
+                HistoryLegendItem(title: "无记录", state: .noData)
+            }
         }
         .padding(WaterUpTheme.Spacing.x4)
         .background(
@@ -178,19 +192,39 @@ struct HistoryView: View {
         WaterUpSectionTitle(HistoryDateFormatter.dayHeader.string(from: date))
 
         if selectedDayRecords.isEmpty {
-            WaterUpCard {
-                WaterUpEmptyState(
-                    systemImage: "drop",
-                    title: "当天没有记录",
-                    message: "可以进入单日明细补记当天饮品。"
-                )
+            NavigationLink {
+                HistoryDayDetailView(date: date, onChanged: reload)
+                    .toolbar(.visible, for: .navigationBar)
+            } label: {
+                WaterUpCard {
+                    HStack(spacing: WaterUpTheme.Spacing.x5) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(WaterUpTheme.Palette.textMuted.color.opacity(0.55))
+                            .frame(width: 36)
+                            .accessibilityHidden(true)
+
+                        VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x2) {
+                            Text("这一天没有饮水记录")
+                                .font(WaterUpTheme.Typography.headline)
+                                .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
+                            Text("切换日期或补记一杯")
+                                .font(WaterUpTheme.Typography.callout)
+                                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                        }
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("打开单日明细，补记当天饮品")
+            .accessibilityIdentifier("waterup.history.day-detail")
         } else {
             WaterUpCard {
                 VStack(spacing: 0) {
                     ForEach(Array(selectedDayRecords.enumerated()), id: \.element.id) { index, record in
                         NavigationLink {
                             RecordDetailView(recordID: record.id, onChanged: reload)
+                                .toolbar(.visible, for: .navigationBar)
                         } label: {
                             HistoryRecordRow(
                                 record: record,
@@ -209,17 +243,20 @@ struct HistoryView: View {
             }
         }
 
-        NavigationLink {
-            HistoryDayDetailView(date: date, onChanged: reload)
-        } label: {
-            Label("查看单日明细", systemImage: "list.bullet")
-                .font(WaterUpTheme.Typography.headline)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
+        if !selectedDayRecords.isEmpty {
+            NavigationLink {
+                HistoryDayDetailView(date: date, onChanged: reload)
+                    .toolbar(.visible, for: .navigationBar)
+            } label: {
+                Label("查看单日明细", systemImage: "list.bullet")
+                    .font(WaterUpTheme.Typography.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
+            }
+            .buttonStyle(.bordered)
+            .tint(WaterUpTheme.Palette.actionPrimary.color)
+            .accessibilityIdentifier("waterup.history.day-detail")
         }
-        .buttonStyle(.bordered)
-        .tint(WaterUpTheme.Palette.actionPrimary.color)
-        .accessibilityIdentifier("waterup.history.day-detail")
     }
 
     private func reload() {
@@ -263,7 +300,8 @@ struct HistoryView: View {
     }
 
     private func selectedTargetML() throws -> Int? {
-        guard let selectedDate else {
+        // 空日期无需目标；首次使用前没有历史目标也是正常的无记录状态。
+        guard let selectedDate, !selectedDayRecords.isEmpty else {
             return nil
         }
 
@@ -397,25 +435,25 @@ private struct HistoryCalendarDayButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 5) {
+            VStack(spacing: 1) {
                 if let dayNumber = day.dayNumber {
                     Text("\(dayNumber)")
                         .font(.system(size: 17, weight: .semibold).monospacedDigit())
                         .foregroundStyle(dayNumberColor)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 34, height: 34)
                         .background {
                             if isSelected {
                                 Circle().fill(WaterUpTheme.Palette.actionPrimary.color)
                             }
                         }
                 } else {
-                    Color.clear.frame(width: 38, height: 38)
+                    Color.clear.frame(width: 34, height: 34)
                 }
 
                 HistoryStateMarker(state: day.state, usesRelativeWidth: true)
                     .frame(height: 8)
             }
-            .frame(minHeight: 58)
+            .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
@@ -484,6 +522,7 @@ struct HistoryStateMarker: View {
                 }
             } else {
                 Capsule().fill(Color(red: 251 / 255, green: 132 / 255, blue: 104 / 255))
+                    .frame(width: 13, height: 4)
             }
         case .noData:
             Circle().fill(WaterUpTheme.Palette.divider.color)
@@ -498,11 +537,11 @@ struct HistoryRecordRow: View {
     let targetML: Int?
 
     var body: some View {
-        HStack(spacing: WaterUpTheme.Spacing.x3) {
+        HStack(spacing: WaterUpTheme.Spacing.x2) {
             Image(record.iconKeySnapshot)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 56, height: 56)
+                .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
@@ -526,7 +565,10 @@ struct HistoryRecordRow: View {
                     .font(WaterUpTheme.Typography.headline)
                     .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
+            .fixedSize(horizontal: true, vertical: false)
 
             Divider()
                 .frame(height: 46)
@@ -540,7 +582,10 @@ struct HistoryRecordRow: View {
                     .font(WaterUpTheme.Typography.headline)
                     .foregroundStyle(WaterUpTheme.Palette.hydrationProgressStart.color)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
+            .fixedSize(horizontal: true, vertical: false)
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))

@@ -54,6 +54,55 @@ final class WaterUpUITests: XCTestCase {
     }
 
     @MainActor
+    func testRecordFormKeepsKeyboardActionsVisibleAndHidesInvalidCalculation() {
+        let app = makeApp()
+        tapWhenVisible(app.buttons["waterup.today.record-drink"], in: app)
+
+        let volumeField = app.textFields["waterup.record.volume"]
+        XCTAssertTrue(volumeField.waitForExistence(timeout: 3))
+        volumeField.tap()
+        volumeField.typeText("999999")
+
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["完成"].exists)
+        XCTAssertTrue(app.buttons["waterup.record.save"].exists)
+        XCTAssertTrue(app.staticTexts["请输入 1–5000 mL 的整数"].exists)
+        XCTAssertFalse(app.staticTexts["waterup.record.hydration-calculation"].exists)
+    }
+
+    @MainActor
+    func testRecordFormShowsFutureTimeErrorState() {
+        let app = makeApp(additionalLaunchArguments: ["--ui-testing-record-future-time"])
+        tapWhenVisible(app.buttons["waterup.today.record-drink"], in: app)
+
+        XCTAssertTrue(app.staticTexts["记录时间不能晚于当前时间"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["waterup.record.save"].isEnabled)
+    }
+
+    @MainActor
+    func testRecordFormSaveFailureKeepsInputAndRetriesWithoutPartialSave() {
+        let app = makeApp(additionalLaunchArguments: ["--ui-testing-record-save-failure-once"])
+        tapWhenVisible(app.buttons["waterup.today.record-drink"], in: app)
+
+        let noteEditor = app.textViews["waterup.record.note"]
+        tapWhenVisible(noteEditor, in: app)
+        noteEditor.typeText("输入不能丢失")
+        app.buttons["完成"].tap()
+
+        tapWhenVisible(app.buttons["waterup.record.save"], in: app)
+
+        XCTAssertTrue(app.staticTexts["本地保存失败，输入内容已保留，请重试。"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.textFields["waterup.record.volume"].value as? String, "250")
+        XCTAssertEqual(noteEditor.value as? String, "输入不能丢失")
+
+        tapWhenVisible(app.buttons["waterup.record.retry-save"], in: app)
+
+        let recordRows = app.buttons.matching(identifier: "waterup.today.record-row")
+        XCTAssertTrue(recordRows.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertEqual(recordRows.count, 1)
+    }
+
+    @MainActor
     func testGoalSettingsSupportsNumericInputAndQuickTargets() {
         let app = makeApp()
         app.tabBars.buttons["设置"].tap()
@@ -197,9 +246,9 @@ final class WaterUpUITests: XCTestCase {
     }
 
     @MainActor
-    private func makeApp() -> XCUIApplication {
+    private func makeApp(additionalLaunchArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"]
+        app.launchArguments = ["--ui-testing"] + additionalLaunchArguments
         app.launch()
         return app
     }

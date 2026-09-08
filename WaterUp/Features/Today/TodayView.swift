@@ -14,6 +14,7 @@ struct TodayView: View {
     @State private var actionError: TodayActionError?
     @State private var undoState: QuickRecordUndoState?
     @State private var recordFormRoute: RecordFormRoute?
+    @State private var isShowingGoalSettings = false
 
     private let dashboardService = TodayDashboardService()
     private let recordService = RecordService()
@@ -24,7 +25,7 @@ struct TodayView: View {
     }
 
     var body: some View {
-        WaterUpPage(title: "今日") {
+        WaterUpPage(title: "") {
             if isLoading {
                 TodayLoadingView()
             } else if isShowingReadError {
@@ -33,15 +34,16 @@ struct TodayView: View {
                 loadedContent(for: dashboard)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .top) {
             if let undoState {
                 QuickRecordUndoBanner(
                     message: undoState.message,
                     onUndo: undoQuickRecord
                 )
                 .padding(.horizontal, WaterUpTheme.Spacing.x4)
-                .padding(.bottom, WaterUpTheme.Spacing.x2)
-                .transition(reduceMotion ? .identity : .move(edge: .bottom).combined(with: .opacity))
+                // 独立浮层固定在灵动岛下方，不再改变 ScrollView 的可用高度。
+                .padding(.top, WaterUpTheme.Spacing.x10 + WaterUpTheme.Spacing.x4)
+                .transition(reduceMotion ? .identity : .move(edge: .top).combined(with: .opacity))
             }
         }
         .task {
@@ -77,22 +79,32 @@ struct TodayView: View {
         }
         .sheet(item: $recordFormRoute) { route in
             NavigationStack {
-                RecordFormView(route: route, onSaved: reload)
+                RecordFormView(route: route, onSaved: reloadAfterRecordFormSaved)
+            }
+        }
+        .sheet(isPresented: $isShowingGoalSettings) {
+            NavigationStack {
+                GoalSettingsView()
             }
         }
         .animation(
             reduceMotion ? nil : .easeInOut(duration: WaterUpTheme.Motion.confirmationDuration),
             value: undoState?.recordID
         )
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     @ViewBuilder
     private func loadedContent(for dashboard: TodayDashboard) -> some View {
-        TodayDateHeader(date: dashboard.date)
+        TodayDateHeader(
+            date: dashboard.date,
+            onShowGoalSettings: { isShowingGoalSettings = true }
+        )
+        // 隐藏导航栏后，内容不会自动避开灵动岛；保留足够的真实安全间距。
+        .padding(.top, WaterUpTheme.Spacing.x10 + WaterUpTheme.Spacing.x4)
         TodayProgressRing(summary: dashboard.summary)
 
-        if dashboard.shouldShowHydrationExplanation {
+        if dashboard.shouldShowHydrationExplanation && dashboard.recentRecords.isEmpty {
             HydrationExplanationCard(onDismiss: markHydrationExplanationAsShown)
         }
 
@@ -107,7 +119,6 @@ struct TodayView: View {
         WaterUpSectionTitle("快速添加", detail: "默认杯量")
         FavoriteDrinkGrid(
             drinks: dashboard.favoriteDrinks,
-            onOpenForm: openRecordForm,
             onQuickAdd: createQuickRecord
         )
 
@@ -192,6 +203,7 @@ struct TodayView: View {
                 forDrinkID: drinkID,
                 in: modelContext
             )
+            try? hydrationExplanationService.markAsShown(in: modelContext)
             reload()
             setUndoState(
                 QuickRecordUndoState(
@@ -250,6 +262,11 @@ struct TodayView: View {
         }
     }
 
+    private func reloadAfterRecordFormSaved() {
+        try? hydrationExplanationService.markAsShown(in: modelContext)
+        reload()
+    }
+
     private func setUndoState(_ newState: QuickRecordUndoState?) {
         if reduceMotion {
             undoState = newState
@@ -273,18 +290,38 @@ private struct QuickRecordUndoState: Equatable {
 
 private struct TodayDateHeader: View {
     let date: Date
+    let onShowGoalSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
-            Text(TodayDateFormatter.header.string(from: date))
-                .font(WaterUpTheme.Typography.title1)
-                .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
+                Text(TodayDateFormatter.header.string(from: date))
+                    .font(WaterUpTheme.Typography.title1)
+                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
 
-            Text("今天")
-                .font(WaterUpTheme.Typography.callout)
-                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                Text("今天")
+                    .font(WaterUpTheme.Typography.callout)
+                    .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+            }
+
+            Spacer()
+
+            Button(action: onShowGoalSettings) {
+                Image(systemName: "target")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                    .frame(width: 56, height: 56)
+                    .background(
+                        WaterUpTheme.Palette.surfacePrimary.color.opacity(0.85),
+                        in: Circle()
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("调整每日目标")
+            .accessibilityHint("打开每日目标设置")
+            .accessibilityIdentifier("waterup.today.daily-goal")
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -292,6 +329,8 @@ private struct TodayProgressRing: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let summary: DailyHydrationSummary
+
+    private let trackColor = WaterUpColorToken(red: 221, green: 233, blue: 244).color
 
     private var percentage: Int {
         Int((summary.progress * 100).rounded())
@@ -316,13 +355,13 @@ private struct TodayProgressRing: View {
     var body: some View {
         VStack(spacing: WaterUpTheme.Spacing.x4) {
             GeometryReader { proxy in
-                let sideLength = min(proxy.size.width, 296)
+                let sideLength = min(proxy.size.width, 288)
 
                 ZStack {
                     Circle()
                         .stroke(
-                            WaterUpTheme.Palette.divider.color.opacity(0.85),
-                            style: StrokeStyle(lineWidth: 18, lineCap: .round)
+                            trackColor,
+                            style: StrokeStyle(lineWidth: 24, lineCap: .round)
                         )
 
                     if summary.ringProgress > 0 {
@@ -334,13 +373,19 @@ private struct TodayProgressRing: View {
                                         WaterUpTheme.Palette.hydrationProgressStart.color,
                                         WaterUpTheme.Palette.hydrationProgressEnd.color
                                     ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
+                                    startPoint: .leading,
+                                    endPoint: .trailing
                                 ),
-                                style: StrokeStyle(lineWidth: 18, lineCap: .round)
+                                style: StrokeStyle(lineWidth: 24, lineCap: .round)
                             )
                             .rotationEffect(.degrees(-90))
                     }
+
+                    TodayProgressTicks(progress: summary.ringProgress)
+
+                    Circle()
+                        .fill(WaterUpTheme.Palette.surfacePrimary.color.opacity(0.42))
+                        .padding(34)
 
                     VStack(spacing: WaterUpTheme.Spacing.x1) {
                         Image(systemName: "drop.fill")
@@ -370,24 +415,38 @@ private struct TodayProgressRing: View {
                 .frame(width: sideLength, height: sideLength)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: 296)
+            .frame(height: 288)
 
-            HStack(spacing: WaterUpTheme.Spacing.x3) {
+            HStack(spacing: WaterUpTheme.Spacing.x4) {
                 TodayMetric(
                     title: "目标",
                     value: "\(summary.targetML) mL",
-                    systemImage: "target"
+                    systemImage: "target",
+                    iconColor: WaterUpTheme.Palette.actionPrimary.color
                 )
+
+                Divider()
+                    .frame(height: 36)
+                    .overlay(WaterUpTheme.Palette.divider.color)
 
                 TodayMetric(
                     title: "剩余",
                     value: "\(summary.remainingML) mL",
-                    systemImage: summary.remainingML == 0 ? "checkmark.circle.fill" : "drop"
+                    systemImage: summary.remainingML == 0 ? "checkmark.circle.fill" : "drop.fill",
+                    iconColor: summary.remainingML == 0
+                        ? WaterUpTheme.Palette.statusSuccess.color
+                        : WaterUpTheme.Palette.statusWarning.color
                 )
             }
+            .padding(.horizontal, WaterUpTheme.Spacing.x5)
+            .padding(.vertical, WaterUpTheme.Spacing.x3)
+            .background(
+                WaterUpTheme.Palette.surfacePrimary.color.opacity(0.88),
+                in: Capsule()
+            )
         }
         .padding(.vertical, WaterUpTheme.Spacing.x2)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(
             "今日补水进度 \(percentage)%，有效补水 \(summary.totalEffectiveHydrationML) mL，目标 \(summary.targetML) mL，剩余 \(summary.remainingML) mL，\(statusTitle)"
         )
@@ -398,44 +457,73 @@ private struct TodayProgressRing: View {
     }
 }
 
+private struct TodayProgressTicks: View {
+    let progress: Double
+
+    private let tickCount = 32
+    private let completedTickColor = WaterUpColorToken(red: 186, green: 241, blue: 242).color
+    private let remainingTickColor = WaterUpColorToken(red: 191, green: 213, blue: 233).color
+    var body: some View {
+        GeometryReader { proxy in
+            let sideLength = min(proxy.size.width, proxy.size.height)
+            let tickLength: CGFloat = 11
+            // 与外层 Circle 使用相同尺寸，刻度中心直接落在进度环描边中心线上。
+            let tickRadius = sideLength / 2
+
+            ZStack {
+                ForEach(0..<tickCount, id: \.self) { index in
+                    let fraction = Double(index) / Double(tickCount)
+                    let isFilled = fraction < progress
+
+                    Capsule()
+                        .fill(
+                            isFilled
+                                ? completedTickColor
+                                : remainingTickColor
+                        )
+                        .frame(width: 4, height: tickLength)
+                        .offset(y: -tickRadius)
+                        .rotationEffect(.degrees(Double(index) / Double(tickCount) * 360))
+                }
+            }
+            .frame(width: sideLength, height: sideLength)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 private struct TodayMetric: View {
     let title: String
     let value: String
     let systemImage: String
+    let iconColor: Color
 
     var body: some View {
         HStack(spacing: WaterUpTheme.Spacing.x2) {
             Image(systemName: systemImage)
-                .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                .foregroundStyle(iconColor)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(WaterUpTheme.Typography.caption)
-                    .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
-
-                Text(value)
-                    .font(WaterUpTheme.Typography.headline)
-                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
-                    .monospacedDigit()
-            }
+            Text("\(title) \(value)")
+                .font(WaterUpTheme.Typography.headline)
+                .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .padding(WaterUpTheme.Spacing.x3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            WaterUpTheme.Palette.surfaceSecondary.color,
-            in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
-        )
     }
 }
 
 private struct FavoriteDrinkGrid: View {
     let drinks: [DrinkDefinition]
-    let onOpenForm: (UUID) -> Void
     let onQuickAdd: (UUID) -> Void
 
     private let columns = [
-        GridItem(.adaptive(minimum: 76, maximum: 104), spacing: WaterUpTheme.Spacing.x3)
+        GridItem(.flexible(minimum: 0), spacing: WaterUpTheme.Spacing.x3),
+        GridItem(.flexible(minimum: 0), spacing: WaterUpTheme.Spacing.x3),
+        GridItem(.flexible(minimum: 0), spacing: WaterUpTheme.Spacing.x3),
+        GridItem(.flexible(minimum: 0), spacing: WaterUpTheme.Spacing.x3)
     ]
 
     var body: some View {
@@ -452,7 +540,6 @@ private struct FavoriteDrinkGrid: View {
                 ForEach(drinks, id: \.id) { drink in
                     FavoriteDrinkButton(
                         drink: drink,
-                        onOpenForm: { onOpenForm(drink.id) },
                         onQuickAdd: { onQuickAdd(drink.id) }
                     )
                 }
@@ -463,7 +550,6 @@ private struct FavoriteDrinkGrid: View {
 
 private struct FavoriteDrinkButton: View {
     let drink: DrinkDefinition
-    let onOpenForm: () -> Void
     let onQuickAdd: () -> Void
 
     private var quickAddIdentifier: String {
@@ -475,56 +561,40 @@ private struct FavoriteDrinkButton: View {
     }
 
     var body: some View {
-        VStack(spacing: WaterUpTheme.Spacing.x2) {
-            Button(action: onOpenForm) {
-                VStack(spacing: WaterUpTheme.Spacing.x2) {
-                    Image(drink.iconKey)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 48, height: 48)
-                        .accessibilityHidden(true)
+        Button(action: onQuickAdd) {
+            VStack(spacing: WaterUpTheme.Spacing.x2) {
+                Image(drink.iconKey)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 52, height: 52)
+                    .padding(WaterUpTheme.Spacing.x2)
+                    .background(
+                        WaterUpTheme.Palette.surfacePrimary.color.opacity(0.72),
+                        in: Circle()
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(WaterUpTheme.Palette.surfacePrimary.color, lineWidth: 2)
+                    }
+                    .accessibilityHidden(true)
 
-                    Text(drink.name)
-                        .font(WaterUpTheme.Typography.headline)
-                        .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                Text(drink.name)
+                    .font(WaterUpTheme.Typography.headline)
+                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
 
-                    Text("\(drink.defaultVolumeML) mL")
-                        .font(WaterUpTheme.Typography.caption)
-                        .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
-                        .monospacedDigit()
-                }
-                .frame(maxWidth: .infinity)
+                Text("\(drink.defaultVolumeML) mL")
+                    .font(WaterUpTheme.Typography.callout)
+                    .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                    .monospacedDigit()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("编辑 \(drink.name) 记录")
-            .accessibilityHint("可调整容量、时间和备注后保存")
-
-            Button(action: onQuickAdd) {
-                Label("快速记录", systemImage: "plus.circle.fill")
-                    .font(WaterUpTheme.Typography.caption.weight(.semibold))
-                    .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
-            .accessibilityLabel("快速添加 \(drink.name)，默认 \(drink.defaultVolumeML) mL")
-            .accessibilityHint("立即创建一条饮水记录")
-            .accessibilityIdentifier(quickAddIdentifier)
+            .frame(maxWidth: .infinity, minHeight: 142, alignment: .top)
         }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 166)
-        .padding(.horizontal, WaterUpTheme.Spacing.x2)
-        .padding(.vertical, WaterUpTheme.Spacing.x3)
-        .background(
-            WaterUpTheme.Palette.surfacePrimary.color,
-            in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
-                .stroke(WaterUpTheme.Palette.divider.color, lineWidth: 1)
-        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("快速添加 \(drink.name)，默认 \(drink.defaultVolumeML) mL")
+        .accessibilityHint("立即创建一条饮水记录")
+        .accessibilityIdentifier(quickAddIdentifier)
     }
 }
 
@@ -549,19 +619,43 @@ private struct TodayRecordRow: View {
                     .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
             }
 
-            Spacer(minLength: WaterUpTheme.Spacing.x3)
+            Spacer(minLength: WaterUpTheme.Spacing.x2)
 
-            VStack(alignment: .trailing, spacing: WaterUpTheme.Spacing.x1) {
-                Text("饮品容量 \(record.volumeML) mL")
-                    .font(WaterUpTheme.Typography.callout)
-                    .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
+            TodayRecordValue(title: "饮品容量", value: "\(record.volumeML) mL")
 
-                Text("有效补水 \(record.effectiveHydrationML) mL")
-                    .font(WaterUpTheme.Typography.caption)
-                    .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
-            }
-            .monospacedDigit()
+            Divider()
+                .frame(height: 52)
+                .overlay(WaterUpTheme.Palette.divider.color)
+
+            TodayRecordValue(
+                title: "有效补水",
+                value: "\(record.effectiveHydrationML) mL",
+                valueColor: WaterUpTheme.Palette.hydrationProgressStart.color
+            )
         }
+    }
+}
+
+private struct TodayRecordValue: View {
+    let title: String
+    let value: String
+    var valueColor = WaterUpTheme.Palette.textPrimary.color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x2) {
+            Text(title)
+                .font(WaterUpTheme.Typography.caption.weight(.semibold))
+                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                .lineLimit(1)
+
+            Text(value)
+                .font(.system(.headline, design: .rounded).weight(.bold))
+                .foregroundStyle(valueColor)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(width: 70, alignment: .leading)
     }
 }
 
@@ -591,20 +685,33 @@ private struct HydrationExplanationCard: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        WaterUpCard {
-            VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x3) {
-                WaterUpStatusMessage(
-                    kind: .info,
-                    title: "有效补水量是估算值",
-                    message: "饮品容量会按含水比例折算为有效补水量，用于个人记录和习惯管理。"
-                )
+        HStack(alignment: .top, spacing: WaterUpTheme.Spacing.x2) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                .accessibilityHidden(true)
 
-                Button("知道了", action: onDismiss)
-                    .font(WaterUpTheme.Typography.callout)
-                    .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
-                    .frame(minHeight: WaterUpTheme.Layout.minimumTapTarget)
-            }
+            Text("饮品容量会按含水比例折算为有效补水量。")
+                .font(WaterUpTheme.Typography.callout)
+                .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("知道了", action: onDismiss)
+                .font(WaterUpTheme.Typography.callout)
+                .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                .frame(minWidth: WaterUpTheme.Layout.minimumTapTarget, minHeight: WaterUpTheme.Layout.minimumTapTarget)
         }
+        .padding(.leading, WaterUpTheme.Spacing.x3)
+        .padding(.trailing, WaterUpTheme.Spacing.x2)
+        .padding(.vertical, WaterUpTheme.Spacing.x2)
+        .background(
+            WaterUpTheme.Palette.surfacePrimary.color.opacity(0.75),
+            in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
+                .stroke(WaterUpTheme.Palette.divider.color.opacity(0.8), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 

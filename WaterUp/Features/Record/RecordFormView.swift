@@ -40,10 +40,16 @@ struct RecordFormView: View {
     @FocusState private var focusedField: Field?
 
     private let catalogService = DrinkCatalogService()
-    private let recordService = RecordService()
+    private let recordService: RecordService
+
+    init(route: RecordFormRoute, onSaved: @escaping () -> Void) {
+        self.route = route
+        self.onSaved = onSaved
+        recordService = Self.makeRecordService()
+    }
 
     var body: some View {
-        WaterUpPage(title: route.title) {
+        WaterUpPage(title: route.title, titleDisplayMode: .inline) {
             if isLoading {
                 RecordFormLoadingView()
             } else if isShowingReadError {
@@ -52,12 +58,24 @@ struct RecordFormView: View {
                 formContent(binding(for: loadedDraft))
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("取消") {
                     dismiss()
                 }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                saveButton
+            }
+
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+
+                Button("完成") {
+                    focusedField = nil
+                }
+                .accessibilityHint("收起键盘")
             }
         }
         .sheet(isPresented: $isShowingDrinkPicker) {
@@ -86,27 +104,16 @@ struct RecordFormView: View {
 
         WaterUpSectionTitle("饮品容量")
         volumeEditor(draft, validationErrors: validationErrors)
-        effectiveHydrationPreview(draft.wrappedValue)
+        effectiveHydrationPreview(draft.wrappedValue, validationErrors: validationErrors)
         recordTimeEditor(draft, validationErrors: validationErrors)
         noteEditor(draft, validationErrors: validationErrors)
 
         if let saveErrorMessage {
-            WaterUpStatusMessage(
-                kind: .error,
-                title: "记录未保存",
-                message: saveErrorMessage
+            RecordSaveErrorView(
+                message: saveErrorMessage,
+                onRetry: saveDraft
             )
         }
-
-        WaterUpPrimaryButton(
-            title: "保存记录",
-            systemImage: "checkmark"
-        ) {
-            saveDraft()
-        }
-        .disabled(!validationErrors.isEmpty || isSaving)
-        .opacity(validationErrors.isEmpty && !isSaving ? 1 : 0.55)
-        .accessibilityIdentifier("waterup.record.save")
     }
 
     private func selectedDrinkCard(_ draft: RecordDraft) -> some View {
@@ -179,6 +186,8 @@ struct RecordFormView: View {
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
                         .font(.system(size: 46, weight: .bold, design: .rounded).monospacedDigit())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.45)
                         .foregroundStyle(
                             validationErrors.contains(.invalidVolume)
                                 ? WaterUpTheme.Palette.statusError.color
@@ -227,11 +236,17 @@ struct RecordFormView: View {
                 Text(RecordDraftValidationError.invalidVolume.message)
                     .font(WaterUpTheme.Typography.caption)
                     .foregroundStyle(WaterUpTheme.Palette.statusError.color)
+                    .accessibilityLabel(
+                        "容量错误：\(RecordDraftValidationError.invalidVolume.message)"
+                    )
             }
         }
     }
 
-    private func effectiveHydrationPreview(_ draft: RecordDraft) -> some View {
+    private func effectiveHydrationPreview(
+        _ draft: RecordDraft,
+        validationErrors: Set<RecordDraftValidationError>
+    ) -> some View {
         HStack(spacing: WaterUpTheme.Spacing.x3) {
             Image(systemName: "drop.fill")
                 .foregroundStyle(WaterUpTheme.Palette.hydrationProgressStart.color)
@@ -256,11 +271,12 @@ struct RecordFormView: View {
 
             Spacer(minLength: WaterUpTheme.Spacing.x3)
 
-            if let volumeML = draft.volumeML {
+            if !validationErrors.contains(.invalidVolume), let volumeML = draft.volumeML {
                 Text("\(volumeML) × \(draft.waterRatioPercent)%")
                     .font(WaterUpTheme.Typography.caption)
                     .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
                     .monospacedDigit()
+                    .accessibilityIdentifier("waterup.record.hydration-calculation")
             }
         }
         .padding(WaterUpTheme.Spacing.x4)
@@ -279,9 +295,9 @@ struct RecordFormView: View {
             DatePicker(
                 "记录时间",
                 selection: draft.consumedAt,
-                in: ...Date(),
                 displayedComponents: [.date, .hourAndMinute]
             )
+            .environment(\.locale, Locale(identifier: "zh-Hans-CN"))
             .font(WaterUpTheme.Typography.body)
             .padding(WaterUpTheme.Spacing.x4)
             .background(
@@ -290,7 +306,12 @@ struct RecordFormView: View {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
-                    .stroke(WaterUpTheme.Palette.divider.color, lineWidth: 1)
+                    .stroke(
+                        validationErrors.contains(.futureConsumedAt)
+                            ? WaterUpTheme.Palette.statusError.color
+                            : WaterUpTheme.Palette.divider.color,
+                        lineWidth: validationErrors.contains(.futureConsumedAt) ? 2 : 1
+                    )
             }
             .accessibilityIdentifier("waterup.record.time")
 
@@ -298,6 +319,9 @@ struct RecordFormView: View {
                 Text(RecordDraftValidationError.futureConsumedAt.message)
                     .font(WaterUpTheme.Typography.caption)
                     .foregroundStyle(WaterUpTheme.Palette.statusError.color)
+                    .accessibilityLabel(
+                        "时间错误：\(RecordDraftValidationError.futureConsumedAt.message)"
+                    )
             }
         }
     }
@@ -364,6 +388,22 @@ struct RecordFormView: View {
         }
     }
 
+    private var canSave: Bool {
+        guard let draft, !isLoading, !isShowingReadError, !isSaving else {
+            return false
+        }
+
+        return draft.validationErrors(at: .now).isEmpty
+    }
+
+    private var saveButton: some View {
+        // 保持工具栏按钮结构稳定，避免加载完成时插入按钮与弹框展开动画叠加。
+        Button("确认", action: saveDraft)
+            .fontWeight(.semibold)
+            .disabled(!canSave)
+            .accessibilityIdentifier("waterup.record.save")
+    }
+
     private func select(_ drink: DrinkDefinition) {
         guard var draft else {
             return
@@ -393,7 +433,17 @@ struct RecordFormView: View {
             switch route {
             case let .create(drinkID, consumedAt):
                 let drink = try catalogService.activeDrink(id: drinkID, in: modelContext)
-                draft = RecordDraft.newRecord(from: drink, consumedAt: consumedAt)
+                var newDraft = RecordDraft.newRecord(from: drink, consumedAt: consumedAt)
+
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains(
+                    RecordFormUITestConfiguration.futureTimeArgument
+                ) {
+                    newDraft.consumedAt = Date().addingTimeInterval(60 * 60)
+                }
+                #endif
+
+                draft = newDraft
             case let .edit(recordID):
                 let record = try recordService.record(id: recordID, in: modelContext)
                 draft = RecordDraft.editing(record)
@@ -427,6 +477,26 @@ struct RecordFormView: View {
         } catch {
             saveErrorMessage = "本地保存失败，输入内容已保留，请重试。"
         }
+    }
+
+    private static func makeRecordService() -> RecordService {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains(RecordFormUITestConfiguration.saveFailureOnceArgument) {
+            var shouldFail = true
+
+            return RecordService(saveChanges: { context in
+                if shouldFail {
+                    shouldFail = false
+                    throw RecordFormUITestSaveError.intentionalFailure
+                }
+
+                try PersistenceService.saveChanges(in: context)
+            })
+        }
+        #endif
+
+        return RecordService()
     }
 }
 
@@ -467,3 +537,46 @@ private struct RecordFormReadErrorView: View {
         }
     }
 }
+
+private struct RecordSaveErrorView: View {
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: WaterUpTheme.Spacing.x3) {
+            Image(systemName: "xmark.octagon.fill")
+                .foregroundStyle(WaterUpTheme.Palette.statusError.color)
+                .accessibilityHidden(true)
+
+            Text(message)
+                .font(WaterUpTheme.Typography.body)
+                .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: WaterUpTheme.Spacing.x2)
+
+            Button("重试", action: onRetry)
+                .font(WaterUpTheme.Typography.headline)
+                .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+                .accessibilityIdentifier("waterup.record.retry-save")
+        }
+        .padding(WaterUpTheme.Spacing.x4)
+        .background(
+            WaterUpTheme.Palette.statusError.color.opacity(0.11),
+            in: RoundedRectangle(cornerRadius: WaterUpTheme.Radius.medium, style: .continuous)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("保存失败，输入内容已保留")
+    }
+}
+
+#if DEBUG
+private enum RecordFormUITestConfiguration {
+    static let futureTimeArgument = "--ui-testing-record-future-time"
+    static let saveFailureOnceArgument = "--ui-testing-record-save-failure-once"
+}
+
+private enum RecordFormUITestSaveError: Error {
+    case intentionalFailure
+}
+#endif

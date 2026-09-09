@@ -20,7 +20,12 @@ struct SettingsView: View {
     private let notificationAuthorizationService = NotificationAuthorizationService()
 
     var body: some View {
-        WaterUpPage(title: "设置") {
+        WaterUpPage(title: "", titleDisplayMode: .inline) {
+            Text("设置")
+                .font(.largeTitle.bold())
+                .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                .accessibilityAddTraits(.isHeader)
+
             WaterUpSectionTitle("饮水计划")
 
             WaterUpCard {
@@ -107,6 +112,7 @@ struct SettingsView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             await loadSettingsSummary()
         }
@@ -131,12 +137,15 @@ struct SettingsView: View {
         }
         .navigationDestination(isPresented: $isShowingReminderSettings) {
             ReminderSettingsView()
+                .toolbar(.visible, for: .navigationBar)
         }
         .navigationDestination(isPresented: $isShowingUnitExplanation) {
             UnitExplanationView()
+                .toolbar(.visible, for: .navigationBar)
         }
         .navigationDestination(isPresented: $isShowingPrivacy) {
             DataPrivacyView()
+                .toolbar(.visible, for: .navigationBar)
         }
     }
 

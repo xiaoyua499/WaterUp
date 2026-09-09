@@ -100,8 +100,6 @@ struct TodayView: View {
             date: dashboard.date,
             onShowGoalSettings: { isShowingGoalSettings = true }
         )
-        // 隐藏导航栏后，内容不会自动避开灵动岛；保留足够的真实安全间距。
-        .padding(.top, WaterUpTheme.Spacing.x10 + WaterUpTheme.Spacing.x4)
         TodayProgressRing(summary: dashboard.summary)
 
         if dashboard.shouldShowHydrationExplanation && dashboard.recentRecords.isEmpty {
@@ -295,11 +293,12 @@ private struct TodayDateHeader: View {
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
-                Text(TodayDateFormatter.header.string(from: date))
-                    .font(WaterUpTheme.Typography.title1)
-                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
-
                 Text("今天")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                    .accessibilityAddTraits(.isHeader)
+
+                Text(TodayDateFormatter.header.string(from: date))
                     .font(WaterUpTheme.Typography.callout)
                     .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
             }
@@ -308,13 +307,10 @@ private struct TodayDateHeader: View {
 
             Button(action: onShowGoalSettings) {
                 Image(systemName: "target")
-                    .font(.title2.weight(.semibold))
+                    .font(.title2)
                     .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
-                    .frame(width: 56, height: 56)
-                    .background(
-                        WaterUpTheme.Palette.surfacePrimary.color.opacity(0.85),
-                        in: Circle()
-                    )
+                    .frame(width: 46, height: 46)
+                    .background(.white, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("调整每日目标")
@@ -333,7 +329,7 @@ private struct TodayProgressRing: View {
     private let trackColor = WaterUpColorToken(red: 221, green: 233, blue: 244).color
 
     private var percentage: Int {
-        Int((summary.progress * 100).rounded())
+        summary.roundedProgressPercentage
     }
 
     private var statusTitle: String {

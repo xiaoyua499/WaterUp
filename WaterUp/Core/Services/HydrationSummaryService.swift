@@ -19,6 +19,15 @@ struct DailyHydrationSummary: Equatable {
         return Double(totalEffectiveHydrationML) / Double(targetML)
     }
 
+    var roundedProgressPercentage: Int {
+        guard targetML > 0 else {
+            return 0
+        }
+
+        // 使用整数运算避免二进制浮点数把 .5 边界表示成略小于 .5。
+        return (totalEffectiveHydrationML * 100 + targetML / 2) / targetML
+    }
+
     var ringProgress: Double {
         min(max(progress, 0), 1)
     }

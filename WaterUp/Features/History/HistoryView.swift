@@ -537,6 +537,14 @@ struct HistoryRecordRow: View {
     let targetML: Int?
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            horizontalContent
+            verticalContent
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var horizontalContent: some View {
         HStack(spacing: WaterUpTheme.Spacing.x2) {
             Image(record.iconKeySnapshot)
                 .resizable()
@@ -591,7 +599,56 @@ struct HistoryRecordRow: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    private var verticalContent: some View {
+        VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x3) {
+            HStack(spacing: WaterUpTheme.Spacing.x2) {
+                Image(record.iconKeySnapshot)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
+                    Text(record.drinkNameSnapshot)
+                        .font(WaterUpTheme.Typography.headline)
+                        .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+
+                    Text(HistoryDateFormatter.time.string(from: record.consumedAt))
+                        .font(WaterUpTheme.Typography.callout)
+                        .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+                }
+
+                Spacer(minLength: WaterUpTheme.Spacing.x2)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+            }
+
+            Divider()
+                .overlay(WaterUpTheme.Palette.divider.color)
+
+            metricRow(title: primaryMetricTitle, value: primaryMetricValue, color: WaterUpTheme.Palette.textPrimary.color)
+            metricRow(title: "有效补水", value: "\(record.effectiveHydrationML) mL", color: WaterUpTheme.Palette.hydrationProgressStart.color)
+        }
+    }
+
+    private func metricRow(title: String, value: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: WaterUpTheme.Spacing.x3) {
+            Text(title)
+                .font(WaterUpTheme.Typography.callout)
+                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+
+            Spacer(minLength: WaterUpTheme.Spacing.x2)
+
+            Text(value)
+                .font(WaterUpTheme.Typography.headline)
+                .foregroundStyle(color)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     private var primaryMetricTitle: String {

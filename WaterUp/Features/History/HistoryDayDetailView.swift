@@ -2,6 +2,7 @@ import SwiftData
 import SwiftUI
 
 struct HistoryDayDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     let date: Date
@@ -17,37 +18,53 @@ struct HistoryDayDetailView: View {
     private let catalogService = DrinkCatalogService()
 
     var body: some View {
-        WaterUpPage(title: HistoryDateFormatter.detailTitle.string(from: date)) {
-            Text("单日明细")
-                .font(WaterUpTheme.Typography.callout)
-                .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+        ScrollView {
+            VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x5) {
+                HistoryDayDetailHeader(
+                    title: HistoryDateFormatter.detailTitle.string(from: date),
+                    onBack: { dismiss() }
+                )
+                .padding(.horizontal, WaterUpTheme.Spacing.x4)
 
-            if isLoading {
-                WaterUpCard {
-                    ProgressView("正在读取当天记录…")
-                        .frame(maxWidth: .infinity, minHeight: 220)
-                }
-            } else if isShowingReadError {
-                WaterUpCard {
-                    VStack(spacing: WaterUpTheme.Spacing.x4) {
-                        WaterUpEmptyState(
-                            systemImage: "exclamationmark.triangle.fill",
-                            title: "当天明细暂时无法读取",
-                            message: "当天目标或本地记录暂时不可用，请稍后重试。"
-                        )
+                VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x5) {
+                    if isLoading {
+                        WaterUpCard {
+                            ProgressView("正在读取当天记录…")
+                                .frame(maxWidth: .infinity, minHeight: 220)
+                        }
+                    } else if isShowingReadError {
+                        WaterUpCard {
+                            VStack(spacing: WaterUpTheme.Spacing.x4) {
+                                WaterUpEmptyState(
+                                    systemImage: "exclamationmark.triangle.fill",
+                                    title: "当天明细暂时无法读取",
+                                    message: "当天目标或本地记录暂时不可用，请稍后重试。"
+                                )
 
-                        WaterUpPrimaryButton(
-                            title: "重新读取",
-                            systemImage: "arrow.clockwise",
-                            action: reload
-                        )
+                                WaterUpPrimaryButton(
+                                    title: "重新读取",
+                                    systemImage: "arrow.clockwise",
+                                    action: reload
+                                )
+                            }
+                        }
+                    } else if let detail {
+                        detailContent(detail)
                     }
                 }
-            } else if let detail {
-                detailContent(detail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, WaterUpTheme.Spacing.pageHorizontal)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollIndicators(.hidden)
+        .background {
+            Image(WaterUpAsset.Background.light)
+                .resizable()
+                .scaledToFill()
+                .ignoresSafeArea()
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden()
         .sheet(item: $recordFormRoute) { route in
             NavigationStack {
                 RecordFormView(route: route, onSaved: recordDidChange)
@@ -78,6 +95,7 @@ struct HistoryDayDetailView: View {
                     ForEach(Array(detail.records.enumerated()), id: \.element.id) { index, record in
                         NavigationLink {
                             RecordDetailView(recordID: record.id, onChanged: recordDidChange)
+                                .toolbar(.visible, for: .navigationBar)
                         } label: {
                             HistoryRecordRow(record: record, targetML: nil)
                         }
@@ -103,12 +121,19 @@ struct HistoryDayDetailView: View {
             )
         }
 
-        WaterUpSecondaryButton(
-            title: "补记当天记录",
-            systemImage: "plus"
-        ) {
+        Button("补记当天记录") {
             openRecordForm()
         }
+        .font(WaterUpTheme.Typography.headline)
+        .foregroundStyle(WaterUpTheme.Palette.actionPrimary.color)
+        .frame(minWidth: 166, minHeight: WaterUpTheme.Layout.minimumTapTarget)
+        .background(WaterUpTheme.Palette.surfacePrimary.color, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(WaterUpTheme.Palette.actionPrimary.color, lineWidth: 1.5)
+        }
+        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("waterup.history.add-record")
     }
 
@@ -125,7 +150,7 @@ struct HistoryDayDetailView: View {
                         .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
                 } else {
                     ForEach(records, id: \.id) { record in
-                        Text("\(record.drinkNameSnapshot) \(record.volumeML) × \(record.waterRatioPercentSnapshot)% = \(record.effectiveHydrationML) mL")
+                        Text(verbatim: calculationText(for: record))
                             .font(WaterUpTheme.Typography.callout)
                             .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
                             .monospacedDigit()
@@ -137,6 +162,10 @@ struct HistoryDayDetailView: View {
                 }
             }
         }
+    }
+
+    private func calculationText(for record: HydrationRecord) -> String {
+        "\(record.drinkNameSnapshot) \(record.volumeML) × \(record.waterRatioPercentSnapshot)% = \(record.effectiveHydrationML) mL"
     }
 
     private func reload() {
@@ -199,7 +228,7 @@ private struct HistorySummaryCard: View {
                 }
 
                 HStack(alignment: .lastTextBaseline, spacing: WaterUpTheme.Spacing.x2) {
-                    WaterUpDisplayText(value: "\(summary.totalEffectiveHydrationML)")
+                    WaterUpDisplayText(value: String(summary.totalEffectiveHydrationML))
                     Text("mL")
                         .font(WaterUpTheme.Typography.title2)
                         .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
@@ -209,9 +238,9 @@ private struct HistorySummaryCard: View {
                     .overlay(WaterUpTheme.Palette.divider.color)
 
                 HStack {
-                    Text("饮品总容量 \(summary.totalVolumeML) mL")
+                    Text(verbatim: "饮品总容量 \(summary.totalVolumeML) mL")
                     Spacer()
-                    Text("目标 \(summary.targetML) mL")
+                    Text(verbatim: "目标 \(summary.targetML) mL")
                 }
                 .font(WaterUpTheme.Typography.callout)
                 .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
@@ -229,7 +258,7 @@ private struct HistoryProgressBadge: View {
     }
 
     private var percentage: Int {
-        Int((summary.progress * 100).rounded())
+        summary.roundedProgressPercentage
     }
 
     var body: some View {
@@ -252,7 +281,43 @@ private enum HistoryDateFormatter {
     static let detailTitle: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEEE"
+        formatter.dateFormat = "M月d日 EEE"
         return formatter
     }()
+}
+
+private struct HistoryDayDetailHeader: View {
+    let title: String
+    let onBack: () -> Void
+
+    var body: some View {
+        HStack(spacing: WaterUpTheme.Spacing.x2) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(WaterUpTheme.Palette.textSecondary.color)
+                    .frame(
+                        width: WaterUpTheme.Layout.minimumTapTarget,
+                        height: WaterUpTheme.Layout.minimumTapTarget
+                    )
+                    .background(WaterUpTheme.Palette.surfacePrimary.color, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("返回")
+
+            VStack(alignment: .leading, spacing: WaterUpTheme.Spacing.x1) {
+                Text(title)
+                    .font(.system(size: 27, weight: .bold, design: .rounded))
+                    .foregroundStyle(WaterUpTheme.Palette.textPrimary.color)
+                    .lineLimit(1)
+
+                Text("单日明细")
+                    .font(WaterUpTheme.Typography.callout)
+                    .foregroundStyle(WaterUpTheme.Palette.textMuted.color)
+            }
+
+            Spacer(minLength: WaterUpTheme.Spacing.x2)
+        }
+        .padding(.top, WaterUpTheme.Spacing.x2 + WaterUpTheme.Spacing.x1)
+    }
 }

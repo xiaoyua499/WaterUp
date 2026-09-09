@@ -32,6 +32,17 @@ final class WaterUpTests: XCTestCase {
         XCTAssertEqual(WaterUpTheme.Motion.undoTimeout, 5)
     }
 
+    func testProgressPercentageRoundsHalfUpWithoutFloatingPointDrift() {
+        let summary = DailyHydrationSummary(
+            dayKey: "2026-09-07",
+            targetML: 2_000,
+            totalVolumeML: 2_050,
+            totalEffectiveHydrationML: 2_050
+        )
+
+        XCTAssertEqual(summary.roundedProgressPercentage, 103)
+    }
+
     func testDrinkAssetKeysAreUnique() {
         let assetNames = WaterUpAsset.drinkNames
 
